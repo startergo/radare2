@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2024 - pancake */
+/* radare2 - LGPL - Copyright 2009-2025 - pancake */
 
 #define R_LOG_ORIGIN "core"
 
@@ -2565,7 +2565,7 @@ R_API bool r_core_init(RCore *core) {
 	core->print->num = core->num;
 	core->print->offname = r_core_print_offname;
 	core->print->offsize = r_core_print_offsize;
-	core->print->cb_printf = r_cons_printf;
+	// core->print->cb_printf = r_cons_printf;
 	// core->print->cb_color = r_cons_rainbow_get; // NEVER CALLED
 	core->print->write = mywrite;
 	core->print->exists_var = exists_var;
