@@ -83,6 +83,12 @@ r_arch_sources = [
   'p/arm/aarch64/aarch64-opc.c',
   'p/arm/aarch64/aarch64-opc-2.c',
 
+  'p/arc/plugin.c',
+  'p/arc/gnu/arc-dis.c',
+  'p/arc/gnu/arc-ext.c',
+  'p/arc/gnu/arc-opc.c',
+  'p/arc/gnu/arcompact-dis.c',
+
   'p/any_as/plugin.c',
   'p/any_vasm/plugin.c',
   'p/i4004/plugin.c',
@@ -197,7 +203,7 @@ deps =  [
     r_util_dep,
     r_esil_dep,
     r_reg_dep,
-    r_crypto_dep,
+    r_muta_dep,
     java_dep,
     capstone_dep,
   ]
@@ -253,7 +259,7 @@ pkgconfig_mod.generate(r_arch,
   requires: [
     'r_util',
     'r_esil',
-    'r_crypto',
+    'r_muta',
     'r_reg',
   ],
   description: 'radare foundation libraries'

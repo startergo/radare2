@@ -312,6 +312,7 @@ typedef void (*RConsEvent)(void *);
 #define CONS_MAX_ATTR_SZ 16
 
 typedef struct r_cons_canvas_t {
+	struct r_cons_t *cons;
 	int w;
 	int h;
 	int x;
@@ -330,6 +331,7 @@ typedef struct r_cons_canvas_t {
 	int flags; // utf8
 } RConsCanvas;
 
+#define R_CONS_CANVAS_FLAG_INHERIT -2
 #define R_CONS_CANVAS_FLAG_DEFAULT -1
 #define R_CONS_CANVAS_FLAG_UTF8 1
 #define R_CONS_CANVAS_FLAG_CURVY 2
@@ -802,7 +804,7 @@ typedef struct r_cons_canvas_line_style_t {
 
 #ifdef R_API
 R_API void r_cons_image(const ut8 *buf, int bufsz, int width, int mode, int components);
-R_API RConsCanvas* r_cons_canvas_new(int w, int h, int flags);
+R_API RConsCanvas* r_cons_canvas_new(RCons *cons, int w, int h, int flags);
 R_API int r_cons_canvas_flags(RCons * R_NONNULL cons);
 R_API void r_cons_canvas_free(RConsCanvas *c);
 R_API void r_cons_canvas_clear(RConsCanvas * R_NONNULL c, int flags);
@@ -830,7 +832,7 @@ R_API RCons *r_cons_singleton(void); // DEPRECATE
 R_API RCons *r_cons_global(RCons *c);
 R_API const RConsTheme *r_cons_themes(void);
 R_API void r_cons_trim(void);
-R_API RConsContext *r_cons_context(void);
+// R_API RConsContext *r_cons_context(void);
 R_API InputState *r_cons_input_state(void);
 R_API void r_cons_free(RCons *cons);
 R_API char *r_cons_lastline(int *size);
@@ -846,6 +848,7 @@ typedef void (*RConsBreak)(void *);
 R_API bool r_cons_is_initialized(void);
 R_API bool r_cons_is_breaked(void);
 R_API bool r_cons_was_breaked(void);
+R_API bool r_kons_was_breaked(RCons *cons);
 R_API bool r_cons_is_interactive(void);
 R_API bool r_cons_default_context_is_interactive(void);
 R_API void *r_cons_sleep_begin(void);
@@ -1029,7 +1032,7 @@ R_API char *r_cons_rgb_str_off(RCons *cons, char *outstr, size_t sz, ut64 off);
 R_API void r_cons_color(int fg, int r, int g, int b);
 
 R_API RColor r_cons_color_random(ut8 alpha);
-R_API bool r_cons_yesno(int def, const char *fmt, ...) R_PRINTF_CHECK(2, 3);
+R_API bool r_kons_yesno(RCons *cons, int def, const char *fmt, ...) R_PRINTF_CHECK(3, 4);
 R_API char *r_cons_input(RCons *cons, const char *msg);
 R_API char *r_cons_password(const char *msg);
 R_API bool r_cons_set_cup(bool enable);
