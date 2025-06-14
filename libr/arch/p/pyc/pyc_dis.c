@@ -1,4 +1,4 @@
-/* radare - LGPL3 - Copyright 2016-2024 - c0riolis, x0urc3, pancake */
+/* radare - LGPL3 - Copyright 2016-2025 - c0riolis, x0urc3, pancake, bemodtwz */
 
 #include "pyc_dis.h"
 
@@ -7,66 +7,27 @@ static const char *cmp_op[CMP_OP_SIZE] = { "<", "<=", "==", "!=", ">", ">=", "in
 
 static char *parse_arg(pyc_opcode_object *op, ut32 oparg, pyc_code_object *cobj, RList *interned_table, RList *opcode_arg_fmt);
 
-int r_pyc_disasm(RAnalOp *opstruct, const ut8 *code, RList *cobjs, RList *interned_table, ut64 pc, pyc_opcodes *ops) {
-	pyc_code_object *cobj = NULL, *t = NULL;
-	ut32 extended_arg = 0, i = 0, oparg;
-	st64 start_offset = 0, end_offset = 0;
-	RListIter *iter = NULL;
-
-	if (cobjs) {
-		r_list_foreach (cobjs, iter, t) {
-			start_offset = t->start_offset;
-			end_offset = t->end_offset;
-			// pc in [start_offset, end_offset)
-			// if (start_offset <= pc && pc < end_offset)
-			if (R_BETWEEN (start_offset, pc, end_offset - 1)) {
-				cobj = t;
-				break;
-			}
-		}
-	}
-
-	if (!cobj) {
-		return 0;
-	}
-
-	ut8 op = code[i++];
-
-	char *name = strdup (ops->opcodes[op].op_name);
+bool r_pyc_disasm(RAnalOp *opstruct, pyc_code_object *func, RList *interned_table, pyc_opcodes *ops, py_simple_op *so) {
+	pyc_opcode_object *op_obj = &ops->opcodes[so->opcode];
+	char *name = strdup (op_obj->op_name);
 	if (!name) {
-		return 0;
+		free (name);
+		return false;
 	}
 	r_str_case (name, false);
 	opstruct->mnemonic = name;
 
 	/* TODO: adding line number and offset */
-	if (op >= ops->have_argument) {
-		if (ops->bits == 16) {
-			oparg = code[i] + code[i + 1] * 256 + extended_arg;
-			i += 2;
-		} else {
-			oparg = code[i] + extended_arg;
-			i += 1;
-		}
-		extended_arg = 0;
-		if (op == ops->extended_arg) {
-			if (ops->bits == 16) {
-				extended_arg = oparg * 65536;
-			} else {
-				extended_arg = oparg << 8;
-			}
-		}
-		char *arg = parse_arg (&ops->opcodes[op], oparg, cobj, interned_table, ops->opcode_arg_fmt);
+	if (so->opcode >= so->have_arg) {
+		char *arg = parse_arg (op_obj, so->arg, func, interned_table, ops->opcode_arg_fmt);
 		if (arg) {
 			char *nm = r_str_newf ("%s %s", opstruct->mnemonic, arg);
 			free (opstruct->mnemonic);
 			opstruct->mnemonic = nm;
 			free (arg);
 		}
-	} else if (ops->bits == 8) {
-		i += 1;
 	}
-	return i;
+	return true;
 }
 
 static RList *list_from_pycobj(pyc_object *obj) {

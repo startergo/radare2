@@ -57,7 +57,7 @@ static int r_main_version_verify(RCore *core, bool show, bool json) {
 		{ "r_cons", r_cons_version },
 		{ "r_flag", r_flag_version },
 		{ "r_core", r_core_version },
-		{ "r_crypto", r_crypto_version },
+		{ "r_muta", r_muta_version },
 		{ "r_bp", r_bp_version },
 		{ "r_debug", r_debug_version },
 		{ "r_main", r_main_version },
@@ -692,9 +692,9 @@ R_API int r_main_radare2(int argc, const char **argv) {
 	mr.envprofile = r_run_get_environ_profile (env);
 
 	if (r_sys_getenv_asbool ("R2_DEBUG")) {
-		r_log_set_level (R_LOG_LEVEL_DEBUG);
+		r_log_set_level (R_LOG_LEVEL_LAST - 1);
 		char *sysdbg = r_sys_getenv ("R2_DEBUG_TOOL");
-		char *fmt = (sysdbg && *sysdbg)
+		char *fmt = R_STR_ISNOTEMPTY (sysdbg)
 			? strdup (sysdbg)
 #if __APPLE__
 			: strdup ("lldb -p");
@@ -834,7 +834,9 @@ R_API int r_main_radare2(int argc, const char **argv) {
 				if (!strcmp (opt.arg, "q")) {
 					r_core_cmd0 (r, "eq");
 				} else {
-					r_config_eval (r->config, opt.arg, false);
+					char *res = r_config_eval (r->config, opt.arg, false, NULL);
+					r_kons_print (r->cons, res);
+					free (res);
 					r_list_append (mr.evals, (void*)strdup (opt.arg));
 				}
 			}
@@ -1272,7 +1274,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		/* stdin/batch mode */
 		char *buf = r_stdin_slurp (&sz);
 		eprintf ("^D\n");
-		r_cons_set_raw (false);
+		r_kons_set_raw (r->cons, false);
 #if R2__UNIX__
 		// TODO: keep flags :?
 		R_UNUSED_RESULT (freopen ("/dev/tty", "rb", stdin));
@@ -1658,8 +1660,10 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		RListIter *iter;
 		char *cmdn;
 		r_list_foreach (mr.evals, iter, cmdn) {
-			r_config_eval (r->config, cmdn, false);
-			r_cons_flush ();
+			char *res = r_config_eval (r->config, cmdn, false, NULL);
+			r_kons_print (r->cons, res);
+			free (res);
+			r_kons_flush (r->cons);
 		}
 		if (mr.asmbits) {
 			r_config_set (r->config, "asm.bits", mr.asmbits);
@@ -1725,8 +1729,10 @@ R_API int r_main_radare2(int argc, const char **argv) {
 		r_core_seek (r, r->addr, true); // read current block
 
 		r_list_foreach (mr.evals, iter, cmdn) {
-			r_config_eval (r->config, cmdn, false);
-			r_cons_flush ();
+			char *res = r_config_eval (r->config, cmdn, false, NULL);
+			r_kons_print (r->cons, res);
+			free (res);
+			r_kons_flush (r->cons);
 		}
 
 		// no flagspace selected by default the beginning
@@ -1739,7 +1745,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 			if (r_file_exists (path)) {
 				// TODO: should 'q' unset the interactive bit?
 				const bool isint = r_cons_is_interactive ();
-				if (isint && r_cons_yesno ('n', "Do you want to run the '%s' script? (y/N) ", path)) {
+				if (isint && r_kons_yesno (r->cons, 'n', "Do you want to run the '%s' script? (y/N) ", path)) {
 					r_core_cmd_file (r, path);
 				}
 			}
@@ -1891,7 +1897,7 @@ R_API int r_main_radare2(int argc, const char **argv) {
 				bool y_save_project = (ret & 8) >> 3;
 
 				if (r_core_task_running_tasks_count (&r->tasks) > 0) {
-					if (r_cons_yesno ('y', "There are running background tasks. Do you want to kill them? (Y/n)")) {
+					if (r_kons_yesno (r->cons, 'y', "There are running background tasks. Do you want to kill them? (Y/n)")) {
 						r_core_task_break_all (&r->tasks);
 						r_core_task_join (&r->tasks, r->tasks.main_task, -1);
 					} else {
@@ -1905,9 +1911,9 @@ R_API int r_main_radare2(int argc, const char **argv) {
 							r_debug_kill (r->dbg, r->dbg->pid, r->dbg->tid, 9); // KILL
 						}
 					} else {
-						if (r_cons_yesno ('y', "Do you want to quit? (Y/n)")) {
+						if (r_kons_yesno (r->cons, 'y', "Do you want to quit? (Y/n)")) {
 							if (r_config_get_b (r->config, "dbg.exitkills") &&
-									r_cons_yesno ('y', "Do you want to kill the process? (Y/n)")) {
+									r_kons_yesno (r->cons, 'y', "Do you want to kill the process? (Y/n)")) {
 								r_debug_kill (r->dbg, r->dbg->pid, r->dbg->tid, 9); // KILL
 							} else {
 								r_debug_detach (r->dbg, r->dbg->pid);
@@ -1933,14 +1939,14 @@ R_API int r_main_radare2(int argc, const char **argv) {
 						}
 					} else {
 						question = r_str_newf ("Do you want to save the '%s' project? (Y/n)", prj);
-						if (r_cons_yesno ('y', "%s", question)) {
+						if (r_kons_yesno (r->cons, 'y', "%s", question)) {
 							r_core_project_save (r, prj);
 						}
 						free (question);
 					}
 				}
 				if (r_config_get_b (r->config, "scr.confirmquit")) {
-					if (!r_cons_yesno ('n', "Do you want to quit? (Y/n)")) {
+					if (!r_kons_yesno (r->cons, 'n', "Do you want to quit? (Y/n)")) {
 						continue;
 					}
 				}

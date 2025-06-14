@@ -211,7 +211,7 @@ static const char* GH(get_libc_filename_from_maps)(RCore *core) {
 		if (!map->name || r_str_startswith (core->bin->file, map->name)) {
 			continue;
 		}
-		if (r_regex_match (".*libc6?[-_\\.]", "e", map->name)) {
+		if (r_regex_match (".*libc6?[-_\\.]", "e", r_file_basename(map->name))) {
 			r_config_set (core->config, "dbg.glibc.path", map->file);
 			return map->file;
 		}
@@ -406,27 +406,27 @@ static void GH(print_arena_stats)(RCore *core, GHT m_arena, MallocState *main_ar
 		for (i = 0; i < NBINS * 2 - 2; i += 2) {
 			GHT addr = m_arena + align + SZ * i - SZ * 2;
 			GHT bina = main_arena->GH(bins)[i];
-			r_cons_printf ("f chunk.%zu.bin=0x%"PFMT64x"\n", i, (ut64)addr);
-			r_cons_printf ("f chunk.%zu.fd=0x%"PFMT64x"\n", i, (ut64)bina);
+			r_kons_printf (core->cons, "f chunk.%zu.bin=0x%"PFMT64x"\n", i, (ut64)addr);
+			r_kons_printf (core->cons, "f chunk.%zu.fd=0x%"PFMT64x"\n", i, (ut64)bina);
 			bina = main_arena->GH(bins)[i + 1];
-			r_cons_printf ("f chunk.%zu.bk=0x%"PFMT64x"\n", i, (ut64)bina);
+			r_kons_printf (core->cons, "f chunk.%zu.bk=0x%"PFMT64x"\n", i, (ut64)bina);
 		}
 		for (i = 0; i < BINMAPSIZE; i++) {
-			r_cons_printf ("f binmap.%zu=0x%"PFMT64x, i, (ut64)main_arena->binmap[i]);
+			r_kons_printf (core->cons, "f binmap.%zu=0x%"PFMT64x, i, (ut64)main_arena->binmap[i]);
 		}
 		{	/* maybe use SDB instead of flags for this? */
 			char units[8];
 			r_num_units (units, sizeof (units), main_arena->GH(max_system_mem));
-			r_cons_printf ("f heap.maxmem=%s\n", units);
+			r_kons_printf (core->cons, "f heap.maxmem=%s\n", units);
 
 			r_num_units (units, sizeof (units), main_arena->GH(system_mem));
-			r_cons_printf ("f heap.sysmem=%s\n", units);
+			r_kons_printf (core->cons, "f heap.sysmem=%s\n", units);
 
 			r_num_units (units, sizeof (units), main_arena->GH(next_free));
-			r_cons_printf ("f heap.nextfree=%s\n", units);
+			r_kons_printf (core->cons, "f heap.nextfree=%s\n", units);
 
 			r_num_units (units, sizeof (units), main_arena->GH(next));
-			r_cons_printf ("f heap.next=%s\n", units);
+			r_kons_printf (core->cons, "f heap.next=%s\n", units);
 		}
 		return;
 	}
@@ -560,7 +560,7 @@ static GH(expected_arenas_s) GH (get_expected_main_arena_structures ) (RCore *co
 static GHT GH (get_main_arena_offset_with_relocs) (RCore *core, const char *libc_path) {
 	RBin *bin = core->bin;
 	RBinFile *bf = r_bin_cur (bin);
-	GHT main_arena = GHT_MAX;
+	GHT main_arena_offset = GHT_MAX;
 	RBinFileOptions opt;
 	r_bin_file_options_init (&opt, -1, 0, 0, false);
 	if (!r_bin_open (bin, libc_path, &opt)) {
@@ -635,8 +635,8 @@ static GHT GH (get_main_arena_offset_with_relocs) (RCore *core, const char *libc
 				expected_p = (void *)&expected_arenas.expected_212;
 			} // else checked above
 			if (!memcmp (libc_data.buf + search_start, expected_p, malloc_state_size)) {
-				R_LOG_WARN ("Found main_arena offset with relocations");
-				main_arena = reloc->addend - data_section->vaddr;
+				R_LOG_INFO ("Found main_arena offset with relocations");
+				main_arena_offset = reloc->addend;
 				break;
 			} else {
 				R_LOG_WARN ("get_main_arena_offset_with_relocs: main_arena candidate did not match");
@@ -647,8 +647,7 @@ static GHT GH (get_main_arena_offset_with_relocs) (RCore *core, const char *libc
 	RBinFile *libc_bf = r_bin_cur (bin);
 	r_bin_file_delete (bin, libc_bf->id);
 	r_bin_file_set_cur_binfile (bin, bf);
-
-	return main_arena;
+	return main_arena_offset;
 }
 
 static bool GH(resolve_main_arena)(RCore *core, GHT *m_arena) {
@@ -683,6 +682,7 @@ static bool GH(resolve_main_arena)(RCore *core, GHT *m_arena) {
 			return false;
 		}
 
+		// TODO: add test for main_arena resolution via symbol
 		main_arena_offset = GH (get_main_arena_offset_with_symbol) (core, libc_filename);
 		if (main_arena_offset == GHT_MAX) {
 			main_arena_offset = GH (get_main_arena_offset_with_relocs) (core, libc_filename);
@@ -696,12 +696,16 @@ static bool GH(resolve_main_arena)(RCore *core, GHT *m_arena) {
 		RDebugMap *map;
 		r_debug_map_sync (core->dbg);
 		r_list_foreach (core->dbg->maps, iter, map) {
-			if (map->perm == R_PERM_RW && strstr (map->name, libc_filename)) {
+			if (!strstr (map->name, libc_filename)) {
+				continue;
+			}
+			//  main_arena_offset should be relative to libc base address e.g. first occurrence in maps
+			if (main_arena_addr == GHT_MAX && main_arena_offset != GHT_MAX) {
+				main_arena_addr = map->addr + main_arena_offset;
+			}
+			if (map->perm == R_PERM_RW) {
 				libc_addr_sta = map->addr;
 				libc_addr_end = map->addr_end;
-				if (main_arena_offset != GHT_MAX) {
-					main_arena_addr = map->addr + main_arena_offset;
-				}
 				break;
 			}
 		}
@@ -904,7 +908,7 @@ static int GH(print_double_linked_list_bin_simple)(RCore *core, GHT bin, MallocS
 
 static int GH(print_double_linked_list_bin_graph)(RCore *core, GHT bin, MallocState *main_arena, GHT brk_start) {
 	int flags = r_cons_canvas_flags (core->cons);
-	RAGraph *g = r_agraph_new (r_cons_canvas_new (1, 1, flags));
+	RAGraph *g = r_agraph_new (r_cons_canvas_new (core->cons, 1, 1, flags));
 	GHT next = GHT_MAX;
 	char title[256], chunk[256];
 	GH(RHeapChunk) *cnk = R_NEW0 (GH(RHeapChunk));
@@ -1419,9 +1423,9 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		return;
 	}
 
-	w = r_cons_get_size (&h);
+	w = r_kons_get_size (core->cons, &h);
 	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *can = r_cons_canvas_new (w, h, flags);
+	RConsCanvas *can = r_cons_canvas_new (core->cons, w, h, flags);
 	if (!can) {
 		free (cnk);
 		free (cnk_next);
@@ -1470,7 +1474,7 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		pj_ka (pj, "chunks");
 		break;
 	case '*':
-		r_cons_printf ("fs+heap.allocated\n");
+		r_kons_printf (core->cons, "fs+heap.allocated\n");
 		break;
 	case 'g':
 		can->linemode = r_config_get_i (core->config, "graph.linemode");
@@ -1502,9 +1506,9 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 				pj_end (pj);
 				break;
 			case '*':
-				r_cons_printf ("fs heap.corrupted\n");
+				r_kons_printf (core->cons, "fs heap.corrupted\n");
 				ut64 chunkflag = (ut64)((prev_chunk >> 4) & 0xffffULL);
-				r_cons_printf ("f chunk.corrupted.%06"PFMT64x" %d 0x%"PFMT64x"\n",
+				r_kons_printf (core->cons, "f chunk.corrupted.%06"PFMT64x" %d 0x%"PFMT64x"\n",
 					chunkflag, (int)cnk->size, (ut64)prev_chunk);
 				break;
 			case 'g':
@@ -1644,9 +1648,9 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 			pj_end (pj);
 			break;
 		case '*':
-			r_cons_printf ("fs heap.%s\n", status);
+			r_kons_printf (core->cons, "fs heap.%s\n", status);
 			ut64 chunkat = (prev_chunk_addr>>4) & 0xffff;
-			r_cons_printf ("f chunk.%06"PFMT64x" %d 0x%"PFMT64x"\n", chunkat, (int)prev_chunk_size, (ut64)prev_chunk_addr);
+			r_kons_printf (core->cons, "f chunk.%06"PFMT64x" %d 0x%"PFMT64x"\n", chunkat, (int)prev_chunk_size, (ut64)prev_chunk_addr);
 			break;
 		case 'g':
 			node_title = r_str_newf ("  Malloc chunk @ 0x%"PFMT64x" ", (ut64)prev_chunk_addr);
@@ -1682,10 +1686,10 @@ static void GH(print_heap_segment)(RCore *core, MallocState *main_arena,
 		pj_free (pj);
 		break;
 	case '*':
-		r_cons_printf ("fs-\n");
-		r_cons_printf ("f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH (top));
-		r_cons_printf ("f heap.brk = 0x%08"PFMT64x"\n", (ut64)brk_start);
-		r_cons_printf ("f heap.end = 0x%08"PFMT64x"\n", (ut64)brk_end);
+		r_kons_printf (core->cons, "fs-\n");
+		r_kons_printf (core->cons, "f heap.top = 0x%08"PFMT64x"\n", (ut64)main_arena->GH (top));
+		r_kons_printf (core->cons, "f heap.brk = 0x%08"PFMT64x"\n", (ut64)brk_start);
+		r_kons_printf (core->cons, "f heap.end = 0x%08"PFMT64x"\n", (ut64)brk_end);
 		break;
 	case 'g':
 		top = r_agraph_add_node (g, top_title, top_data, NULL);

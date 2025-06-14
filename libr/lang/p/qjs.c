@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2020-2024 pancake */
+/* radare - LGPL - Copyright 2020-2025 pancake */
 
 #include <r_lib.h>
 #include <r_core.h>
@@ -8,7 +8,6 @@
 
 #define countof(x) (sizeof (x) / sizeof ((x)[0]))
 
-//#include <qjs/quickjs.h>
 #include <quickjs.h>
 
 #include "../../../shlr/qjs/js_require.c"
@@ -317,9 +316,11 @@ static void js_std_dump_error(JSContext *ctx) {
 }
 
 static JSValue r2log(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	JSRuntime *rt = JS_GetRuntime (ctx);
+	QjsPluginManager *pm = JS_GetRuntimeOpaque (rt);
 	size_t plen;
 	const char *n = JS_ToCStringLen2 (ctx, &plen, argv[0], false);
-	r_cons_printf ("%s\n", n);
+	r_kons_printf (pm->core->cons, "%s\n", n);
 	return JS_NewBool (ctx, true);
 }
 
@@ -391,6 +392,40 @@ static JSValue r2plugin_unload(JSContext *ctx, JSValueConst this_val, int argc, 
 	const char *name_or_arch = JS_ToCStringLen2 (ctx, &len, argv[1], false);
 	const bool res = plugin_manager_remove_plugin (pm, type, name_or_arch);
 	return JS_NewBool (ctx, res);
+}
+
+static JSValue r2fdump(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	size_t plen;
+	if (argc == 2) {
+		const char *a0 = JS_ToCStringLen2 (ctx, &plen, argv[0], false);
+		const char *a1 = JS_ToCStringLen2 (ctx, &plen, argv[1], false);
+		if (r_file_dump (a1, (const ut8*)a0, strlen (a0), false)) {
+			return JS_NewBool (ctx, true);
+		}
+	} else if (argc == 1) {
+		char *tmpfile = r_file_temp (NULL);
+		if (tmpfile) {
+			const char *a0 = JS_ToCStringLen2 (ctx, &plen, argv[0], false);
+			if (r_file_dump (tmpfile, (const ut8*)a0, strlen (a0), false)) {
+				JSValue v = JS_NewString (ctx, tmpfile);
+				free (tmpfile);
+				return v;
+			}
+			R_LOG_ERROR ("Failed to dump to %s", tmpfile);
+			free (tmpfile);
+		}
+	}
+	return JS_NewBool (ctx, false);
+}
+
+static JSValue r2fload(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
+	size_t plen;
+	const char *n = JS_ToCStringLen2 (ctx, &plen, argv[0], false);
+	size_t sz = 0;
+	char *s = r_file_slurp (n, &sz);
+	JSValue v = JS_NewString (ctx, s);
+	free (s);
+	return v;
 }
 
 static JSValue r2syscmd(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv) {
@@ -586,6 +621,9 @@ static const JSCFunctionListEntry js_r2_funcs[] = {
 	JS_CFUNC_DEF ("callAt", 2, r2callAt),
 	JS_CFUNC_DEF ("syscmd", 1, r2syscmd),
 	JS_CFUNC_DEF ("syscmds", 1, r2syscmds),
+	// disk
+	JS_CFUNC_DEF ("fdump", 2, r2fdump),
+	JS_CFUNC_DEF ("fload", 1, r2fload),
 };
 
 static int js_r2_init(JSContext *ctx, JSModuleDef *m) {
@@ -726,7 +764,6 @@ static void register_helpers(JSContext *ctx) {
 	js_init_module_r2 (ctx);
 	js_init_module_r2pipe (ctx);
 	r2qjs_modules (ctx);
-	// JS_AddModuleExportList (ctx, m, js_r2_funcs, countof (js_r2_funcs));
 	JSValue global_obj = JS_GetGlobalObject (ctx);
 	// JS_SetPropertyStr (ctx, global_obj, "r2", global_obj); // JS_NewCFunction (ctx, b64, "b64", 1));
 	JS_SetPropertyStr (ctx, global_obj, "b64", JS_NewCFunction (ctx, b64, "b64", 1));

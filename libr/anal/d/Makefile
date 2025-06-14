@@ -1,4 +1,5 @@
 include ../../../global.mk
+
 F=
 F+= types
 F+= types-16
@@ -78,18 +79,14 @@ HOST_CC?=gcc
 
 F_SDB=$(addsuffix .sdb,$F)
 
-SDBPATH=$(LTOP)/../subprojects/sdb/
-ifeq ($(BUILD_OS),windows)
-BUILD_EXT_EXE=.exe
-else
-BUILD_EXT_EXE=
-endif
-SDB=$(SDBPATH)/sdb${BUILD_EXT_EXE}
-
 FCNSIGNPATH=$(DESTDIR)$(DATADIR)/radare2/$(VERSION)/fcnsign
 
 all: ${SDB}
+ifeq ($(USE_SDBTOOL),1)
+	$(SDBTOOL) $(shell pwd)
+else
 	@$(MAKE) compile
+endif
 
 compile: ${F_SDB}
 
