@@ -1,4 +1,4 @@
-/* Copyright radare2 - 2014-2024 - pancake, ret2libc */
+/* Copyright radare2 - 2014-2025 - pancake, ret2libc */
 
 #include <r_core.h>
 
@@ -2190,7 +2190,7 @@ static char *get_body(RCore *core, ut64 addr, int size, int opts) {
 	const bool o_cmtright = r_config_get_b (core->config, "graph.cmtright");
 	const bool o_bytes = r_config_get_b (core->config, "graph.bytes");
 	bool o_flags_in_bytes = r_config_get_b (core->config, "asm.flags.inbytes");
-	const bool o_graph_offset = r_config_get_b (core->config, "graph.offset");
+	const bool o_graph_addr = r_config_get_b (core->config, "graph.addr");
 	int o_cursor = core->print->cur_enabled;
 	r_config_set_b (core->config, "asm.dwarf.file", false);
 	int mw = r_config_get_i (core->config, "graph.bb.maxwidth");
@@ -2226,7 +2226,7 @@ static char *get_body(RCore *core, ut64 addr, int size, int opts) {
 	r_config_set_b (core->config, "asm.bbmiddle", false);
 	core->print->cur_enabled = false;
 
-	const bool asm_addr = (opts & BODY_OFFSETS || opts & BODY_SUMMARY || o_graph_offset);
+	const bool asm_addr = (opts & BODY_OFFSETS || opts & BODY_SUMMARY || o_graph_addr);
 	r_config_set_b (core->config, "asm.addr", asm_addr);
 
 	const bool html = r_config_get_b (core->config, "scr.html");
@@ -3381,8 +3381,9 @@ static void agraph_follow_innodes(RCore *core, RAGraph *g, bool in) {
 	if (r_list_length (list) == 0) {
 		return;
 	}
-	r_kons_gotoxy (core->cons, 0, 2);
-	r_kons_printf (core->cons, in? "Input nodes:\n": "Output nodes:\n");
+	RCons *cons = core->cons;
+	r_kons_gotoxy (cons, 0, 2);
+	r_kons_printf (cons, in? "Input nodes:\n": "Output nodes:\n");
 	RList *options = r_list_newf (NULL);
 	RList *gnodes = in? an->gnode->in_nodes: an->gnode->out_nodes;
 	RGraphNode *gn;
@@ -3399,7 +3400,7 @@ static void agraph_follow_innodes(RCore *core, RAGraph *g, bool in) {
 					continue;
 				}
 			}
-			r_cons_printf ("%d %s\n", count, nnn->title);
+			r_kons_printf (cons, "%d %s\n", count, nnn->title);
 			r_list_append (options, nnn);
 			count++;
 		}
@@ -3409,8 +3410,8 @@ static void agraph_follow_innodes(RCore *core, RAGraph *g, bool in) {
 		nth = 0;
 	} else if (r_list_length (list) < 10) {
 		// just 1 key
-		r_cons_set_raw (true);
-		char ch = r_cons_readchar (core->cons);
+		r_kons_set_raw (cons, true);
+		char ch = r_cons_readchar (cons);
 		if (ch >= '0' && ch <= '9') {
 			nth =  ch - '0';
 		}
@@ -3647,8 +3648,7 @@ static int agraph_print(RAGraph *g, bool is_interactive, RCore *core, RAnalFunct
 			r_kons_push (core->cons);
 			g->can->h *= 4;
 			RConsCanvas *ocan = g->can;
-			int flags = r_cons_canvas_flags (core->cons);
-			g->can = r_cons_canvas_new (w * 2, h * 4, flags);
+			g->can = r_cons_canvas_new (core->cons, w * 2, h * 4, -2);
 			g->can->sx = ocan->sx;
 			g->can->sy = ocan->sy;
 			g->can->color = 0;
@@ -3672,7 +3672,7 @@ static int agraph_print(RAGraph *g, bool is_interactive, RCore *core, RAnalFunct
 static void check_function_modified(RCore *core, RAnalFunction *fcn) {
 	if (r_anal_function_was_modified (fcn)) {
 		if (r_config_get_b (core->config, "anal.onchange")
-			|| r_cons_yesno ('y', "Function was modified. Reanalyze? (Y/n)")) {
+			|| r_kons_yesno (core->cons, 'y', "Function was modified. Reanalyze? (Y/n)")) {
 			r_anal_function_update_analysis (fcn);
 		}
 	}
@@ -3682,8 +3682,9 @@ static int agraph_refresh(struct agraph_refresh_data *grd) {
 	if (!grd) {
 		return 0;
 	}
-	r_cons_singleton ()->event_data = grd;
 	RCore *core = grd->core;
+	RCons *cons = core->cons;
+	cons->event_data = grd;
 	RAGraph *g = grd->g;
 	RAnalFunction *f = NULL;
 	RAnalFunction **fcn = grd->fcn;
@@ -3711,7 +3712,7 @@ static int agraph_refresh(struct agraph_refresh_data *grd) {
 			f = r_anal_get_fcn_in (core->anal, core->addr, 0);
 			if (!f) {
 				if (!g->is_dis) {
-					if (!r_cons_yesno ('y', "\rNo function at 0x%08"PFMT64x". Define it here (Y/n)? ", core->addr)) {
+					if (!r_kons_yesno (cons, 'y', "\rNo function at 0x%08"PFMT64x". Define it here (Y/n)? ", core->addr)) {
 						return 0;
 					}
 					r_core_cmd_call (core, "af");
@@ -3802,6 +3803,9 @@ static void graphNodeMove(RAGraph *g, int dir, int speed) {
 }
 
 static void agraph_free_nodes(RAGraph *g) {
+	if (!g) {
+		return;
+	}
 	RListIter *it;
 	RGraphNode *n;
 	RANode *a;
@@ -3820,7 +3824,8 @@ static void sdb_set_enc(Sdb *db, const char *key, const char *v, ut32 cas) {
 }
 
 static void agraph_sdb_init(const RAGraph *g) {
-	RConsContext *ctx = r_cons_singleton ()->context;
+	RConsCanvas *canvas = g->can;
+	RConsContext *ctx = canvas->cons->context;
 	sdb_bool_set (g->db, "agraph.is_callgraph", g->is_callgraph, 0);
 	sdb_set_enc (g->db, "agraph.color_box", ctx->pal.graph_box, 0);
 	sdb_set_enc (g->db, "agraph.color_box2", ctx->pal.graph_box2, 0);
@@ -4451,12 +4456,11 @@ R_API bool r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int
 	r_config_hold (hc, "asm.pseudo", "asm.esil", "asm.cmt.right", NULL);
 
 	int h, w = r_cons_get_size (&h);
-	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *can = r_cons_canvas_new (w, h, flags);
+	RConsCanvas *can = r_cons_canvas_new (core->cons, w, h, -2);
 	if (!can) {
 		w = 80;
 		h = 25;
-		can = r_cons_canvas_new (w, h, flags);
+		can = r_cons_canvas_new (core->cons, w, h, -2);
 		if (!can) {
 			R_LOG_ERROR ("Cannot create RCons.canvas context. Invalid screen "
 					"size? See scr.cols + scr.rows");
@@ -4678,7 +4682,7 @@ R_API bool r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int
 			exit_graph = true;
 			break;
 		case '>':
-			if (fcn && r_cons_yesno ('y', "Compute function callgraph? (Y/n)")) {
+			if (fcn && r_kons_yesno (core->cons, 'y', "Compute function callgraph? (Y/n)")) {
 				r_core_cmd0 (core, "ag-;.agc* @$FB;.axfg @$FB;aggi");
 			}
 			break;
@@ -5317,11 +5321,11 @@ R_API bool r_core_visual_graph(RCore *core, RAGraph *g, RAnalFunction *_fcn, int
 	return !is_error;
 }
 
-R_API RAGraph *r_agraph_new_from_graph(const RGraph *graph, RAGraphTransitionCBs *cbs, void *user) {
+R_API RAGraph *r_agraph_new_from_graph(void *_core, const RGraph *graph, RAGraphTransitionCBs *cbs, void *user) {
 	R_RETURN_VAL_IF_FAIL (graph && cbs && cbs->get_title && cbs->get_body, NULL);
 
-	int flags = r_cons_canvas_flags (r_cons_singleton ());
-	RConsCanvas *canvas = r_cons_canvas_new (1, 1, flags);
+	RCore *core = (RCore *)_core;
+	RConsCanvas *canvas = r_cons_canvas_new (core->cons, 1, 1, -2);
 	RAGraph *result_agraph = r_agraph_new (canvas);
 	if (!result_agraph) {
 		return NULL;

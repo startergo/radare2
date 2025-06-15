@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2023 - pancake */
+/* radare - LGPL - Copyright 2011-2025 - pancake */
 
 #include <r_egg.h>
 
@@ -6,18 +6,17 @@
 
 /* based on @santitox patch */
 static RBuffer *build(REgg *egg) {
-	RBuffer *buf, *sc;
-	ut8 aux[32], nkey;
+	ut8 aux[32];
 	const char *default_key = DEFAULT_XOR_KEY;
 	char *key = r_egg_option_get (egg, "key");
 	int i;
 
-	if (!key || !*key) {
+	if (R_STR_ISEMPTY (key)) {
 		free (key);
 		key = strdup (default_key);
 		R_LOG_WARN ("XOR key not provided. Using (%s) as the key", key);
 	}
-	nkey = r_num_math (NULL, key);
+	ut8 nkey = (ut8)r_num_math (NULL, key);
 	if (nkey == 0) {
 		R_LOG_ERROR ("Invalid key (%s)", key);
 		free (key);
@@ -32,7 +31,7 @@ static RBuffer *build(REgg *egg) {
 		free (key);
 		return NULL;
 	}
-	sc = egg->bin; // hack
+	RBuffer *sc = egg->bin; // hack
 	if (!r_buf_size (sc)) {
 		R_LOG_ERROR ("No shellcode found!");
 		free (key);
@@ -47,7 +46,7 @@ static RBuffer *build(REgg *egg) {
 			return NULL;
 		}
 	}
-	buf = r_buf_new ();
+	RBuffer *buf = r_buf_new ();
 	sc = r_buf_new ();
 
 	// TODO: alphanumeric? :D
@@ -81,6 +80,10 @@ static RBuffer *build(REgg *egg) {
 			r_buf_write_at (sc, i, &v, sizeof (v));
 		}
 		r_buf_append_buf (buf, sc);
+	} else {
+		R_LOG_ERROR ("Invalid arch for egg.xor which is x86-only for now");
+		r_buf_free (buf);
+		buf = NULL;
 	}
 	r_buf_free (sc);
 	free (key);

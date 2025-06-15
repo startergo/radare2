@@ -84,7 +84,9 @@ static RCore *opencore(RadiffOptions *ro, const char *f) {
 	r_config_set_b (c->config, "io.va", ro->useva);
 	r_config_set_b (c->config, "scr.interactive", false);
 	r_list_foreach (ro->evals, iter, e) {
-		r_config_eval (c->config, e, false);
+		char *res = r_config_eval (c->config, e, false, NULL);
+		r_kons_println (c->cons, res);
+		free (res);
 	}
 	if (f) {
 		RIODesc *rfile = NULL;
@@ -961,15 +963,16 @@ static ut8 *get_strings(RCore *c, int *len) {
 }
 
 static char *get_graph_commands(RCore *c, ut64 off) {
-	bool tmp_html = r_cons_context ()->is_html;
-	r_cons_context ()->is_html = false;
-	r_cons_push ();
+	RConsContext *ctx = c->cons->context;
+	bool tmp_html = ctx->is_html;
+	ctx->is_html = false;
+	r_kons_push (c->cons);
 	r_core_anal_graph (c, off, R_CORE_ANAL_GRAPHBODY | R_CORE_ANAL_GRAPHDIFF |  R_CORE_ANAL_STAR);
 	const char *static_str = r_cons_get_buffer ();
 	char *retstr = strdup (r_str_get (static_str));
-	r_cons_pop ();
-	r_cons_echo (NULL);
-	r_cons_context ()->is_html = tmp_html;
+	r_kons_pop (c->cons);
+	r_kons_echo (c->cons, NULL);
+	ctx->is_html = tmp_html;
 	return retstr;
 }
 
@@ -1425,6 +1428,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 			// printf ("%s\n", opt.arg);
 			break;
 		case 'T': // imho `t <=> T`
+			R_LOG_WARN ("Threading support is experimental and known to be crashy");
 			ro.thready = true;
 			// printf ("%s\n", opt.arg);
 			break;

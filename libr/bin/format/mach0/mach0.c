@@ -3680,9 +3680,10 @@ static bool is_valid_ordinal_table_size(ut64 size) {
 
 static bool _load_relocations(struct MACH0_(obj_t) *mo) {
 	RPVector *threaded_binds = NULL;
+	ut8 *opcodes = NULL;
 	size_t wordsize = get_word_size (mo);
 	if (mo->dyld_info) {
-		ut8 *opcodes, rel_type = 0;
+		ut8 rel_type = 0;
 		size_t bind_size, lazy_size, weak_size;
 
 #define CASE(T) case ((T) / 8): rel_type = R_BIN_RELOC_ ## T; break
@@ -4043,6 +4044,7 @@ static bool _load_relocations(struct MACH0_(obj_t) *mo) {
 		walk_bind_chains (mo, mo->relocs_cache);
 	}
 beach:
+	R_FREE (opcodes);
 	r_pvector_free (threaded_binds);
 	return true;
 }
@@ -4207,6 +4209,8 @@ const char *MACH0_(get_cputype_from_hdr)(struct MACH0_(mach_header) *hdr) {
 	case CPU_TYPE_MC680x0:
 		archstr = "mc680x0";
 		break;
+	case CPU_TYPE_RISCV:
+		return "riscv";
 	case CPU_TYPE_I386:
 	case CPU_TYPE_X86_64:
 		archstr = "x86";
@@ -4275,6 +4279,8 @@ static const char *cpusubtype_tostring(ut32 cputype, ut32 cpusubtype) {
 		case CPU_SUBTYPE_MC68030_ONLY:	return "mc68030 only";
 		default:			return "Unknown mc680x0 subtype";
 		}
+	case CPU_TYPE_RISCV:
+		return "riscv";
 	case CPU_TYPE_I386:
 		switch (cpusubtype) {
 		case CPU_SUBTYPE_386: 			return "386";

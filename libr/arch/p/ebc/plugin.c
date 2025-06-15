@@ -40,7 +40,7 @@ static void ebc_anal_call(RAnalOp *op, ut64 addr, const ut8 *buf) {
 	}
 }
 
-static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
+static bool decode(RArchSession *as, RAnalOp *op, RArchDecodeMask mask) {
 	const ut64 addr = op->addr;
 	const ut8 *buf = op->bytes;
 	const int len = op->size;
@@ -164,7 +164,7 @@ static int archinfo(RArchSession *as, ut32 q) {
 const RArchPlugin r_arch_plugin_ebc = {
 	.meta = {
 		.name = "ebc",
-		.desc = "EFI Bytecode architecture",
+		.desc = "EFI Bytecode Virtual Machine",
 		.license = "LGPL-3.0-only",
 		.author = "Fedor Sakharov",
 	},
