@@ -52,4 +52,18 @@ endif
 -include $(TOP)/mk/${COMPILER}.mk
 
 WWWROOT=$(DATADIR)/radare2/${VERSION}/www
+PANELS=$(DATADIR)/radare2/${VERSION}/panels
 endif
+
+## global sdb stuff
+
+USE_SDBTOOL=0
+SDBPATH=$(LTOP)/../subprojects/sdb/
+ifeq ($(BUILD_OS),windows)
+BUILD_EXT_EXE=.exe
+else
+BUILD_EXT_EXE=
+endif
+
+SDB=$(SDBPATH)/sdb${BUILD_EXT_EXE}
+SDBTOOL=$(SDBPATH)/sdb${BUILD_EXT_EXE} -r

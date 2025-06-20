@@ -1265,7 +1265,7 @@ R_API void r_file_mmap_free(RMmap *m) {
 	free (m);
 }
 
-R_API char *r_file_temp(const char *prefix) {
+R_API char *r_file_temp(const char * R_NULLABLE prefix) {
 	if (!prefix) {
 		prefix = "";
 	}
@@ -1394,9 +1394,13 @@ R_API char *r_file_tmpdir(void) {
 		}
 	}
 #else
-	char *path = r_sys_getenv ("TMPDIR");
-	if (path && !*path) {
-		R_FREE (path);
+	char *path = r_sys_getenv ("XDG_RUNTIME_DIR");
+	if (R_STR_ISEMPTY (path)) {
+		free (path);
+		path = r_sys_getenv ("TMPDIR");
+		if (path && !*path) {
+			R_FREE (path);
+		}
 	}
 	if (!path) {
 #if __ANDROID__
@@ -1637,7 +1641,7 @@ R_API bool r_file_is_newer(const char *f1, const char *f2) {
 		return false;
 	}
 	if (stat (f2, &a2) == -1) {
-		return false;
+		return true;
 	}
 	long a = a1.st_mtime;
 	long b = a2.st_mtime;

@@ -436,7 +436,7 @@ static bool cmd_ec(RCore *core, const char *input) {
 			break;
 		case 'c':
 		case '.':
-			r_cons_printf ("%s\n", core->theme);
+			r_kons_printf (core->cons, "%s\n", core->theme);
 			break;
 		case '?':
 			r_core_cmd_help (core, help_msg_eco);
@@ -696,28 +696,41 @@ static void cmd_eplus(RCore *core, const char *input) {
 	free (s);
 }
 
+static void core_config_list(RCore *core, const char *str, int rad) {
+	char *res = r_config_list (core->config, str, rad);
+	r_kons_print (core->cons, res);
+	free (res);
+}
+
+static void core_config_eval(RCore *core, const char *input, bool uhm) {
+	char *res = r_config_eval (core->config, input, uhm, NULL);
+	r_kons_print (core->cons, res);
+	free (res);
+}
+
 static int cmd_eval(void *data, const char *input) {
 	RCore *core = (RCore *)data;
+	RCons *cons = core->cons;
 	switch (input[0]) {
 	case '\0': // "e"
-		r_config_list (core->config, NULL, 0);
+		core_config_list (core, NULL, 0);
 		break;
 	case '?': // "e?"
 		switch (input[1]) {
 		case '\0': r_core_cmd_help (core, help_msg_e); break;
-		case '?': r_config_list (core->config, input + 2, 2); break;
-		default: r_config_list (core->config, input + 1, 3); break;
+		case '?': core_config_list (core, input + 2, 2); break;
+		default: core_config_list (core, input + 1, 3); break;
 		}
 		break;
 	case 't': // "et"
 		if (input[1] == 'a') {
-			r_cons_printf ("%s\n", (r_num_rand (10) % 2)? "wen": "son");
+			r_kons_printf (cons, "%s\n", (r_num_rand (10) % 2)? "wen": "son");
 		} else if (input[1] == ' ' && input[2]) {
 			RConfigNode *node = r_config_node_get (core->config, input+2);
 			if (node) {
 				const char *type = r_config_node_type (node);
 				if (type && *type) {
-					r_cons_println (type);
+					r_kons_println (cons, type);
 				}
 			}
 		} else {
@@ -747,13 +760,13 @@ static int cmd_eval(void *data, const char *input) {
 			}
 			pj_end (pj);
 			char *s = pj_drain (pj);
-			r_cons_println (s);
+			r_kons_println (cons, s);
 			free (s);
 		} else if (!strcmp (input + 1, "v*")) {
 			char **e = r_sys_get_environ ();
 			if (e != NULL) {
 				while (*e) {
-					r_cons_printf ("%%%s\n", *e);
+					r_kons_printf (cons, "%%%s\n", *e);
 					e++;
 				}
 			}
@@ -764,13 +777,13 @@ static int cmd_eval(void *data, const char *input) {
 			}
 			char *p = r_sys_getenv (var);
 			if (p) {
-				r_cons_println (p);
+				r_kons_println (cons, p);
 				free (p);
 			} else if (!var || !*var) {
 				char **e = r_sys_get_environ ();
 				if (e != NULL) {
 					while (*e) {
-						r_cons_println (*e);
+						r_kons_println (cons, *e);
 						e++;
 					}
 				}
@@ -799,16 +812,16 @@ static int cmd_eval(void *data, const char *input) {
 		// XXX we need headers for the cmd_xxx files.
 		return cmd_quit (data, "");
 	case 'J': // "eJ"
-		r_config_list (core->config, NULL, 'J');
+		core_config_list (core, NULL, 'J');
 		break;
 	case 'j': // "ej"
-		r_config_list (core->config, NULL, 'j');
+		core_config_list (core, NULL, 'j');
 		break;
 	case 'v': // verbose
-		r_config_list (core->config, r_str_trim_head_ro (input + 1), 'v');
+		core_config_list (core, r_str_trim_head_ro (input + 1), 'v');
 		break;
 	case 'q': // quiet list of eval keys
-		r_config_list (core->config, NULL, 'q');
+		core_config_list (core, NULL, 'q');
 		break;
 	case 'c': // "ec"
 		return cmd_ec (core, input);
@@ -818,7 +831,7 @@ static int cmd_eval(void *data, const char *input) {
 		} else if (input[1] == '*') {
 			char *file = r_file_home (".radare2rc");
 			char *data = r_file_slurp (file, NULL);
-			r_cons_println (data);
+			r_kons_println (cons, data);
 			free (data);
 			free (file);
 		} else if (input[1] == '+') {
@@ -827,7 +840,7 @@ static int cmd_eval(void *data, const char *input) {
 			const bool prompt = (input[2] != '!');
 			char *file = r_file_home (".radare2rc");
 			if (file) {
-				const bool rmfile = !prompt || r_cons_yesno ('n', "Do you want to delete ~/.radare2? (Y/n)");
+				const bool rmfile = !prompt || r_kons_yesno (cons, 'n', "Do you want to delete ~/.radare2? (Y/n)");
 				if (rmfile) {
 					r_file_rm (file);
 				}
@@ -835,11 +848,11 @@ static int cmd_eval(void *data, const char *input) {
 			}
 		} else {
 			char *file = r_file_home (".radare2rc");
-			if (r_kons_is_interactive (core->cons)) {
+			if (r_kons_is_interactive (cons)) {
 				r_file_touch (file);
-				char *res = r_cons_editor (core->cons, file, NULL);
+				char *res = r_cons_editor (cons, file, NULL);
 				if (res) {
-					if (r_cons_yesno ('y', "Reload? (Y/n)")) {
+					if (r_kons_yesno (cons, 'y', "Reload? (Y/n)")) {
 						r_core_run_script (core, file);
 					}
 				}
@@ -878,14 +891,14 @@ static int cmd_eval(void *data, const char *input) {
 		}
 		break;
 	case 's': // "es"
-		r_config_list (core->config, (input[1])? input + 1: NULL, 's');
+		core_config_list (core, (input[1])? input + 1: NULL, 's');
 		break;
 	case '-': // "e-"
 		r_core_config_init (core);
 		//eprintf ("BUG: 'e-' command locks the eval hashtable. patches are welcome :)\n");
 		break;
 	case '*': // "e*"
-		r_config_list (core->config, NULL, 1);
+		core_config_list (core, NULL, 1);
 		break;
 	case 'r': // "er"
 		if (input[1]) {
@@ -898,7 +911,7 @@ static int cmd_eval(void *data, const char *input) {
 		}
 		break;
 	case ':': // "e:"
-		r_config_eval (core->config, input + 1, true);
+		core_config_eval (core, input + 1, true);
 		break;
 	case ',': // "e,"
 		cmd_eval_table (core, input + 1);
@@ -906,17 +919,17 @@ static int cmd_eval(void *data, const char *input) {
 	case '.': // "e "
 	case ' ': // "e "
 		if (strchr (input, '=')) {
-			r_config_eval (core->config, r_str_trim_head_ro (input + 1), false);
+			core_config_eval (core, r_str_trim_head_ro (input + 1), false);
 		} else {
 			if (r_str_endswith (input, ".") && !r_str_endswith (input, "..")) {
-				r_config_list (core->config, input + 1, 0);
+				core_config_list (core, input + 1, 0);
 			} else if (r_str_endswith (input, ".?")) {
 				char *w = r_str_ndup (input, strlen (input) - 1);
-				r_config_list (core->config, w, 2);
+				core_config_list (core, w, 2);
 				free (w);
 			} else {
 				// XXX we cant do "e cmd.gprompt=dr=", because the '=' is a token, and quotes dont affect him
-				r_config_eval (core->config, r_str_trim_head_ro (input + 1), false);
+				core_config_eval (core, r_str_trim_head_ro (input + 1), false);
 			}
 		}
 		break;

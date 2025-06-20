@@ -497,7 +497,8 @@ static int cmp(const void *a, const void *b) {
 		}
 		return (int)diff;
 	}
-	RConsContext *ctx = r_cons_context ();
+	RCons *cons = r_cons_singleton ();
+	RConsContext *ctx = cons->context;
 	if (ctx->sorted_column > 0) {
 		da = strdup (ca);
 		db = strdup (cb);
@@ -583,139 +584,13 @@ static inline ut64 cmpstrings(const void *a) {
 	return r_str_hash64 (a);
 }
 
-static char *colorword(char *res, const char *k, const char *color) {
-	char *tv = r_str_newf ("~~[%s]~~", k);
-	r_str_case (tv, true);
-	char *nv = r_str_newf ("%s%s"Color_RESET, color, k);
-	res = r_str_replace_all (res, k, tv);
-	res = r_str_replace_all (res, tv, nv);
-	free (nv);
-	free (tv);
-	return res;
-}
-
 static void colorcode(RCons *cons) {
-	// TODO : dupped from libr/util/print_code.c r_print_code_tocolor
-	int i;
 	char *res = r_str_ndup (cons->context->buffer, cons->context->buffer_len);
-	if (res) {
-		bool linecomment = false;
-		bool comment = false;
-		bool string = false;
-		RStrBuf *sb = r_strbuf_new ("");
-		for (i = 0; res[i]; i++) {
-			const char ch = res[i];
-			const char ch2 = res[i + 1];
-			if (linecomment) {
-				if (ch == '\n') {
-					r_strbuf_append (sb, Color_RESET);
-					r_strbuf_append_n (sb, &ch, 1);
-					linecomment = false;
-				} else {
-					r_strbuf_append_n (sb, &ch, 1);
-				}
-			} else if (comment) {
-				if (ch == '*' && res[i + 1] == '/') {
-					r_strbuf_append_n (sb, &ch, 1);
-					r_strbuf_append_n (sb, &ch2, 1);
-					r_strbuf_append (sb, Color_RESET);
-					comment = false;
-					i++;
-				} else {
-					r_strbuf_append_n (sb, &ch, 1);
-				}
-			} else if (string) {
-				if (ch == '\\') {
-					if (res[i + 1]) {
-						r_strbuf_append_n (sb, &ch, 1);
-						r_strbuf_append_n (sb, &ch2, 1);
-						i++;
-					} else {
-						r_strbuf_append_n (sb, &ch, 1);
-					}
-				} else if (ch == '"') {
-					r_strbuf_append_n (sb, &ch, 1);
-					r_strbuf_append (sb, Color_RESET);
-					string = false;
-				} else {
-					r_strbuf_append_n (sb, &ch, 1);
-				}
-			} else {
-				if (i == 0 && ch == '#') {
-					r_strbuf_append (sb, Color_BLUE);
-					r_strbuf_append_n (sb, &ch, 1);
-					linecomment = true;
-				} else if (ch == '\n') {
-					if (ch2 == '#') {
-						r_strbuf_append_n (sb, &ch, 1);
-						r_strbuf_append (sb, Color_BLUE);
-						r_strbuf_append_n (sb, &ch2, 1);
-						linecomment = true;
-						i++;
-						i++;
-					} else {
-						r_strbuf_append_n (sb, &ch, 1);
-					}
-				} else if (ch == '/') {
-					if (ch2 == '*') {
-						comment = true;
-						r_strbuf_append (sb, Color_BLUE);
-						r_strbuf_append_n (sb, &ch, 1);
-					} else if (ch2 == '/') {
-						linecomment = true;
-						r_strbuf_append (sb, Color_BLUE);
-						r_strbuf_append_n (sb, &ch, 1);
-					} else {
-						r_strbuf_append_n (sb, &ch, 1);
-					}
-				} else if (ch == '"') {
-					string = true;
-					r_strbuf_append (sb, Color_RED);
-					r_strbuf_append_n (sb, &ch, 1);
-				} else {
-					r_strbuf_append_n (sb, &ch, 1);
-				}
-			}
-		}
-		free (res);
-		res = r_strbuf_drain (sb);
-		// ugly temporary hack
-#if 0
-		res = colorword (res, "if ", Color_RED);
-		res = colorword (res, " else ", Color_RED);
-#endif
-		res = colorword (res, "for ", Color_RED);
-		res = colorword (res, "while ", Color_RED);
-		res = colorword (res, "switch ", Color_RED);
-		res = colorword (res, "static ", Color_RED);
-		res = colorword (res, "inline ", Color_RED);
-		// res = colorword (res, " -> ", Color_RED);
-		res = colorword (res, "return", Color_RED);
-		res = colorword (res, "string ", Color_RED);
-		res = colorword (res, "number ", Color_RED);
-
-		res = colorword (res, "void ", Color_GREEN);
-		res = colorword (res, "bool ", Color_GREEN);
-		res = colorword (res, "ut64 ", Color_GREEN);
-		res = colorword (res, "uint32_t", Color_GREEN);
-		res = colorword (res, "uint64_t", Color_GREEN);
-		res = colorword (res, "int32_t", Color_GREEN);
-		res = colorword (res, "int64_t", Color_GREEN);
-		res = colorword (res, "int8_t", Color_GREEN);
-		res = colorword (res, "uint8_t", Color_GREEN);
-		res = colorword (res, "int ", Color_GREEN);
-		res = colorword (res, "char ", Color_GREEN);
-		res = colorword (res, "const ", Color_GREEN);
-#if 0
-		res = colorword (res, "{", Color_YELLOW);
-		res = colorword (res, "}", Color_YELLOW);
-#endif
-		// bring back the colorized buffer
-		cons->context->buffer_len = strlen (res);
-		cons->context->buffer_sz = cons->context->buffer_len;
-		free (cons->context->buffer);
-		cons->context->buffer = res;
-	}
+	char *cres = r_print_code_tocolor (res);
+	cons->context->buffer_len = strlen (cres);
+	cons->context->buffer_sz = cons->context->buffer_len;
+	free (cons->context->buffer);
+	cons->context->buffer = cres;
 }
 
 R_API void r_kons_grepbuf(RCons *cons) {
@@ -1171,7 +1046,7 @@ R_API int r_cons_grep_line(RCons *cons, char *buf, int len) {
 		hit = true;
 	}
 
-	RConsContext *ctx = r_cons_context ();
+	RConsContext *ctx = cons->context;
 	if (hit) {
 		if (!grep->range_line) {
 			if (grep->line == cons->lines) {

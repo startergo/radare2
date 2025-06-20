@@ -62,12 +62,12 @@ typedef enum {
 	DOWN
 } Direction;
 
-static const char *panels_dynamic [] = {
+static const char *panels_dynamic[] = {
 	"Disassembly", "Stack", "Registers",
 	NULL
 };
 
-static const char *panels_static [] = {
+static const char *panels_static[] = {
 	"Disassembly", "Functions", "Symbols",
 	NULL
 };
@@ -94,7 +94,7 @@ static const char *menus_ReOpen[] = {
 };
 
 static const char *menus_loadLayout[] = {
-	"Saved", "Default",
+	"Saved..", "Default",
 	NULL
 };
 
@@ -499,9 +499,10 @@ static int __show_status(RCore *core, const char *msg) {
 }
 
 static bool __show_status_yesno(RCore *core, int def, const char *msg) {
-	r_kons_gotoxy (core->cons, 0, 0);
-	r_kons_flush (core->cons);
-	return r_cons_yesno (def, R_CONS_CLEAR_LINE"%s[Status] %s"Color_RESET, PANEL_HL_COLOR, msg);
+	RCons *cons = core->cons;
+	r_kons_gotoxy (cons, 0, 0);
+	r_kons_flush (cons);
+	return r_kons_yesno (cons, def, R_CONS_CLEAR_LINE"%s[Status] %s"Color_RESET, PANEL_HL_COLOR, msg);
 }
 
 static char *__show_status_input(RCore *core, const char *msg) {
@@ -1168,8 +1169,7 @@ static void __set_curnode(RCore *core, int idx) {
 static bool __check_panel_num(RCore *core) {
 	RPanels *panels = core->panels;
 	if (panels->n_panels + 1 > PANEL_NUM_LIMIT) {
-		const char *msg = "panel limit exceeded";
-		(void)__show_status (core, msg);
+		(void)__show_status (core, "panel limit exceeded");
 		return false;
 	}
 	return true;
@@ -2475,8 +2475,7 @@ static void __init_all_dbs(RCore *core) {
 }
 
 static RConsCanvas *__create_new_canvas(RCore *core, int w, int h) {
-	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *can = r_cons_canvas_new (w, h, flags);
+	RConsCanvas *can = r_cons_canvas_new (core->cons, w, h, -2);
 	if (!can) {
 		return false;
 	}
@@ -4920,20 +4919,20 @@ static void __print_snow(RPanels *panels) {
 						fall = false;
 						if (is_down_right) {
 							if (!is_down_left) {
-								snow->x --;
-								snow->y --;
+								snow->x--;
+								snow->y--;
 								fall = true;
 							}
 						} else {
 							if (is_down_left) {
-								snow->x ++;
-								snow->y --;
+								snow->x++;
+								snow->y--;
 								fall = true;
 							}
 						}
 						if (!fall) {
 							snow->stuck = true;
-							snow->y --;
+							snow->y--;
 						}
 						goto print_this_snow;
 					}
@@ -5222,7 +5221,16 @@ static void __update_menu(RCore *core, const char *parent, R_NULLABLE RPanelMenu
 	__update_menu_contents (core, menu, p_item);
 }
 
-static char *__get_panels_config_dir_path(void) {
+static char *__panels_config_path(bool syspath) {
+	if (syspath) {
+		char *r2_prefix = r_sys_getenv ("R2_PREFIX");
+		if (!r2_prefix) {
+			r2_prefix = strdup (R2_PREFIX);
+		}
+		char *res = r_file_new (r2_prefix, "share", "radare2", R2_VERSION, "panels", NULL);
+		free (r2_prefix);
+		return res;
+	}
 	return r_xdg_datadir ("r2panels");
 }
 
@@ -5266,19 +5274,42 @@ static void __add_menu(RCore *core, const char *parent, const char *name, RPanel
 }
 
 static void __init_menu_saved_layout(void *_core, const char *parent) {
-	char *dir_path = __get_panels_config_dir_path ();
+	char *dir_path = __panels_config_path (false);
 	RList *dir = r_sys_dir (dir_path);
-	if (!dir) {
-		free (dir_path);
-		return;
-	}
 	RCore *core = (RCore *)_core;
 	RListIter *it;
-	char *entry;
-	r_list_foreach (dir, it, entry) {
-		if (strcmp (entry, ".") && strcmp (entry, "..")) {
-			__add_menu (core, parent, entry, __load_layout_saved_cb);
+	char *entry, *entry2;
+	if (dir) {
+		r_list_foreach (dir, it, entry) {
+			if (*entry != '.') {
+				__add_menu (core, parent, entry, __load_layout_saved_cb);
+			}
 		}
+	}
+	char *sysdir_path = __panels_config_path (true);
+	RList *sysdir = r_sys_dir (sysdir_path);
+	if (sysdir) {
+		bool found_in_home;
+		// load entries from syspath
+		r_list_foreach (sysdir, it, entry) {
+			if (*entry != '.') {
+				found_in_home = false;
+				if (dir) {
+					RListIter *it2;
+					r_list_foreach (dir, it2, entry2) {
+						if (!strcmp (entry, entry2)) {
+							found_in_home = true;
+							break;
+						}
+					}
+				}
+				if (!found_in_home) {
+					__add_menu (core, parent, entry, __load_layout_saved_cb);
+				}
+			}
+		}
+		r_list_free (sysdir);
+		free (sysdir_path);
 	}
 	r_list_free (dir);
 	free (dir_path);
@@ -5286,10 +5317,10 @@ static void __init_menu_saved_layout(void *_core, const char *parent) {
 
 static int __clear_layout_cb(void *user) {
 	RCore *core = (RCore *)user;
-	if (!__show_status_yesno (core, 0, "Clear all the saved layouts?(y/n): ")) {
+	if (!__show_status_yesno (core, 0, "Clear all the saved layouts? (y/n): ")) {
 		return 0;
 	}
-	char *dir_path = __get_panels_config_dir_path ();
+	char *dir_path = __panels_config_path (false);
 	RList *dir = r_sys_dir ((const char *)dir_path);
 	if (!dir) {
 		free (dir_path);
@@ -5306,7 +5337,7 @@ static int __clear_layout_cb(void *user) {
 	r_list_free (dir);
 	free (dir_path);
 
-	__update_menu (core, "Settings.Load Layout.Saved", __init_menu_saved_layout);
+	__update_menu (core, "Settings.Load Layout.Saved..", __init_menu_saved_layout);
 	return 0;
 }
 
@@ -6059,14 +6090,14 @@ static bool __init_panels_menu(RCore *core) {
 	parent = "Settings.Load Layout";
 	for (i = 0; menus_loadLayout[i]; i++) {
 		const char *menu = menus_loadLayout[i];
-		if (!strcmp (menu, "Saved")) {
+		if (!strcmp (menu, "Saved..")) {
 			__add_menu (core, parent, menu, __open_menu_cb);
 		} else if (!strcmp (menu, "Default")) {
 			__add_menu (core, parent, menu, __load_layout_default_cb);
 		}
 	}
 
-	__init_menu_saved_layout (core, "Settings.Load Layout.Saved");
+	__init_menu_saved_layout (core, "Settings.Load Layout.Saved..");
 	__init_menu_color_settings_layout (core, "Settings.Color Themes...");
 	__init_menu_manpages (core, "Help.Manpages...");
 
@@ -6499,7 +6530,7 @@ static bool __handle_console(RCore *core, RPanel *panel, const int key) {
 }
 
 static char *__create_panels_config_path(const char *file) {
-	char *dir_path = __get_panels_config_dir_path ();
+	char *dir_path = __panels_config_path (false);
 	r_sys_mkdirp (dir_path);
 	char *file_path = r_str_newf (R_JOIN_2_PATHS ("%s", "%s"), dir_path, file);
 	R_FREE (dir_path);
@@ -6507,11 +6538,18 @@ static char *__create_panels_config_path(const char *file) {
 }
 
 static char *__get_panels_config_file_from_dir(const char *file) {
-	char *dir_path = __get_panels_config_dir_path ();
+	char *dir_path = __panels_config_path (false);
 	RList *dir = r_sys_dir (dir_path);
 	if (!dir_path || !dir) {
 		free (dir_path);
-		return NULL;
+		dir_path = __panels_config_path (true);
+		r_list_free (dir);
+		dir = r_sys_dir (dir_path);
+		if (!dir || !dir_path) {
+			free (dir_path);
+			r_list_free (dir);
+			return NULL;
+		}
 	}
 	char *tmp = NULL;
 	RListIter *it;
@@ -6566,7 +6604,7 @@ R_API void r_core_panels_save(RCore *core, const char *oname) {
 		fprintf (fd, "%s\n", pjs);
 		free (pjs);
 		fclose (fd);
-		__update_menu (core, "Settings.Load Layout.Saved", __init_menu_saved_layout);
+		__update_menu (core, "Settings.Load Layout.Saved..", __init_menu_saved_layout);
 		(void)__show_status (core, "Panels layout saved!");
 	} else {
 		pj_free (pj);

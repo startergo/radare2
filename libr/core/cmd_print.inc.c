@@ -49,12 +49,14 @@ static RCoreHelpMessage help_msg_psp = {
 static RCoreHelpMessage help_msg_p8 = {
 	"Usage: p8[*fjx]", " [len]", "8bit hexpair list of bytes (see pcj)",
 	"p8", " ([len])", "print hexpairs string",
+	"p8,", "", "comma separated 0xhexadecimal bytes",
 	"p8*", "", "display r2 commands to write this block",
 	"p8b", "", "print hexpairs of basic block",
 	"p8d", "", "space separated list of byte values in decimal",
 	"p8f", "[j]", "print hexpairs of function (linear)",
 	"p8fm", "[j]", "print linear function byte:mask pattern (zero-filled bbgaps)",
 	"p8j", "", "print hexpairs in JSON array",
+	"p8s", "", "space separated hex bytes",
 	"p8x", "", "print hexpairs honoring hex.cols",
 	NULL
 };
@@ -192,7 +194,7 @@ static RCoreHelpMessage help_msg_p = {
 	"p2", " [len]", "8x8 2bpp-tiles",
 	"p3", " [file]", "print 3D stereogram image of current block",
 	"p6", "[de] [len]", "base64 decode/encode",
-	"p8", "[?][dfjx] [len]", "8bit hexpair list of bytes",
+	"p8", "[?][bdfsjx] [len]", "8bit hexpair list of bytes",
 	"p=", "[?][bep] [N] [L] [b]", "show entropy/printable chars/chars bars",
 	"pa", "[?][edD] [arg]", "pa:assemble  pa[dD]:disasm or pae: esil from hex",
 	"pA", "[n_ops]", "show n_ops address and type",
@@ -1095,7 +1097,7 @@ static void cmd_pCd(RCore *core, const char *input) {
 	}
 	r_kons_push (core->cons);
 	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *c = r_cons_canvas_new (w, rows, flags);
+	RConsCanvas *c = r_cons_canvas_new (core->cons, w, rows, flags);
 	ut64 osek = core->addr;
 	c->color = r_config_get_i (core->config, "scr.color");
 	r_core_block_size (core, rows * 32);
@@ -1166,7 +1168,7 @@ static void cmd_pCD(RCore *core, const char *input) {
 	}
 	r_kons_push (core->cons);
 	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *c = r_cons_canvas_new (w, rows, flags);
+	RConsCanvas *c = r_cons_canvas_new (core->cons, w, rows, flags);
 	ut64 osek = core->addr;
 	c->color = r_config_get_i (core->config, "scr.color");
 	r_core_block_size (core, rows * 32);
@@ -1216,7 +1218,7 @@ static void cmd_pCx(RCore *core, const char *input, const char *xcmd) {
 		rows = user_rows + 1;
 	}
 	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *c = r_cons_canvas_new (w, rows, flags);
+	RConsCanvas *c = r_cons_canvas_new (core->cons, w, rows, flags);
 	if (!c) {
 		R_LOG_ERROR ("Couldn't allocate a canvas with %d rows", rows);
 		goto err;
@@ -3386,9 +3388,9 @@ static void print_encrypted_block(RCore *core, const char *algo, const char *key
 		free (binkey);
 		return;
 	}
-	RCryptoJob *cj = r_crypto_use (core->crypto, algo);
-	if (cj && cj->h->type == R_CRYPTO_TYPE_ENCRYPT) {
-		if (r_crypto_job_set_key (cj, binkey, keylen, 0, direction)) {
+	RMutaSession *cj = r_muta_use (core->muta, algo);
+	if (cj && cj->h->type == R_MUTA_TYPE_CRYPTO) {
+		if (r_muta_session_set_key (cj, binkey, keylen, 0, direction)) {
 			if (iv) {
 				ut8 *biniv = malloc (strlen (iv) + 1);
 				int ivlen = r_hex_str2bin (iv, biniv);
@@ -3396,17 +3398,17 @@ static void print_encrypted_block(RCore *core, const char *algo, const char *key
 					ivlen = strlen (iv);
 					strcpy ((char *)biniv, iv);
 				}
-				if (!r_crypto_job_set_iv (cj, biniv, ivlen)) {
+				if (!r_muta_session_set_iv (cj, biniv, ivlen)) {
 					R_LOG_ERROR ("Invalid IV");
 					return;
 				}
 			}
-			r_crypto_job_update (cj, (const ut8 *)core->block, core->blocksize);
+			r_muta_session_update (cj, (const ut8 *)core->block, core->blocksize);
 
 			int result_size = 0;
-			ut8 *result = r_crypto_job_get_output (cj, &result_size);
+			ut8 *result = r_muta_session_get_output (cj, &result_size);
 			if (result) {
-				r_print_bytes (core->print, result, result_size, "%02x");
+				r_print_bytes (core->print, result, result_size, "%02x", 0);
 				free (result);
 			}
 		}
@@ -3459,12 +3461,14 @@ static void cmd_print_op(RCore *core, const char *input) {
 			algo = r_list_get_n (args, 1);
 		}
 		if (!args || !algo) {
-			r_crypto_list (core->crypto, r_cons_printf, 0, R_CRYPTO_TYPE_SIGNATURE);
+			char *s = r_muta_list (core->muta, R_MUTA_TYPE_SIGN, 0);
+			r_kons_print (core->cons, s);
+			free (s);
 			r_core_cmd_help_match (core, help_msg_po, "poS");
 			break;
 		}
-		RCryptoJob *cj = r_crypto_use (core->crypto, algo);
-		if (cj && cj->h->type == R_CRYPTO_TYPE_SIGNATURE) {
+		RMutaSession *cj = r_muta_use (core->muta, algo);
+		if (cj && cj->h->type == R_MUTA_TYPE_SIGN) {
 			char *key = r_list_get_n (args, 2);
 			ut8 *binkey = (ut8 *)strdup (key);
 			int keylen = r_hex_str2bin (key, binkey);
@@ -3472,15 +3476,15 @@ static void cmd_print_op(RCore *core, const char *input) {
 				R_LOG_ERROR ("Invalid key");
 				break;
 			}
-			if (!r_crypto_job_set_key (cj, binkey, keylen, 0, R_CRYPTO_DIR_ENCRYPT)) {
+			if (!r_muta_session_set_key (cj, binkey, keylen, 0, R_CRYPTO_DIR_ENCRYPT)) {
 				break;
 			}
-			r_crypto_job_update (cj, (const ut8 *)core->block, core->blocksize);
+			r_muta_session_update (cj, (const ut8 *)core->block, core->blocksize);
 
 			int result_size = 0;
-			ut8 *result = r_crypto_job_get_output (cj, &result_size);
+			ut8 *result = r_muta_session_get_output (cj, &result_size);
 			if (result) {
-				r_print_bytes (core->print, result, result_size, "%02x");
+				r_print_bytes (core->print, result, result_size, "%02x", 0);
 				free (result);
 			}
 		} else {
@@ -3498,7 +3502,9 @@ static void cmd_print_op(RCore *core, const char *input) {
 			algo = r_list_get_n (args, 1);
 		}
 		if (!args || !algo) {
-			r_crypto_list (core->crypto, r_cons_printf, 0, R_CRYPTO_TYPE_ENCRYPT);
+			char *s = r_muta_list (core->muta, R_MUTA_TYPE_CRYPTO, 0);
+			r_kons_print (core->cons, s);
+			free (s);
 			r_core_cmd_help_match_spec (core, help_msg_po, "po", input[1]);
 			break;
 		}
@@ -4004,21 +4010,27 @@ static bool cmd_print_ph(RCore *core, const char *input) {
 		return true;
 	}
 	if (!i0 || i0 == 'l' || i0 == 'L') {
-		RCrypto *cry = r_crypto_new ();
-		r_crypto_list (cry, NULL, 'q', R_CRYPTO_TYPE_HASH);
-		r_crypto_free (cry);
+		RMuta *cry = r_muta_new ();
+		char *s = r_muta_list (cry, R_MUTA_TYPE_HASH, 'q');
+		r_kons_print (core->cons, s);
+		free (s);
+		r_muta_free (cry);
 		return true;
 	}
 	if (i0 == 'j') { // "phj"
-		RCrypto *cry = r_crypto_new ();
-		r_crypto_list (cry, r_cons_printf, 'j', R_CRYPTO_TYPE_ALL);
-		r_crypto_free (cry);
+		RMuta *cry = r_muta_new ();
+		char *s = r_muta_list (cry, R_MUTA_TYPE_ALL, 'j');
+		r_kons_print (core->cons, s);
+		free (s);
+		r_muta_free (cry);
 		return true;
 	}
 	if (i0 == 'J') { // "phJ"
-		RCrypto *cry = r_crypto_new ();
-		r_crypto_list (cry, r_cons_printf, 'J', R_CRYPTO_TYPE_HASH);
-		r_crypto_free (cry);
+		RMuta *cry = r_muta_new ();
+		char *s = r_muta_list (cry, R_MUTA_TYPE_HASH, 'J');
+		r_kons_print (core->cons, s);
+		free (s);
+		r_muta_free (cry);
 		return true;
 	}
 	if (i0 == ':') {
@@ -6497,6 +6509,135 @@ static void print_pascal_string(RCore *core, const char *input, int len) {
 	}
 }
 
+static ut64 find_nextop(RCore *core, ut64 addr) {
+	RAnalOp *op = r_core_anal_op (core, addr, R_ARCH_OP_MASK_BASIC | R_ARCH_OP_MASK_HINT);
+	if (op && (int)op->size > 0) {
+		return addr + op->size;
+	}
+	const int minopsz = r_anal_archinfo (core->anal, R_ARCH_INFO_MINOP_SIZE);
+	// Check for possible integer overflow
+	if (UT64_MAX - (ut64)minopsz < addr) {
+		return UT64_MAX;
+	}
+	return addr + minopsz;
+}
+
+// problematic for non-linear functions
+// TODO: resort all lines from the decompiler by offset and then use that as guide
+static ut64 find_endfunc(RCore *core, ut64 addr) {
+	ut64 res = UT64_MAX;
+	RList *funcs = r_anal_get_functions_in (core->anal, addr);
+	if (funcs) {
+		RAnalFunction *f = (RAnalFunction *)r_list_get_n (funcs, 0);
+		if (f) {
+			res = r_anal_function_max_addr (f);
+		}
+		r_list_free (funcs);
+	}
+	return res;
+}
+static ut64 find_nextfunc(RCore *core, ut64 addr, int range) {
+	while (range-- > 0) {
+#if 0
+		RList *funcs = r_anal_get_functions_in (core->anal, addr);
+		if (funcs) {
+			RAnalFunction *f = r_list_get_n (funcs, 0);
+			if (f) {
+				return addr;
+			}
+		}
+#else
+		RAnalFunction *f = r_anal_get_function_at (core->anal, addr);
+		if (f) {
+			return addr;
+		}
+#endif
+		addr = find_nextop (core, addr);
+	}
+	return UT64_MAX;
+}
+
+static void linear_pseudo(RCore *core, const char *arg) {
+	int rows = (int)r_num_math (core->num, arg);
+	int h;
+	r_kons_get_size (core->cons, &h);
+	if (rows < 1) {
+		rows = h;
+	}
+	char *offpos = NULL;
+	int lines = 0;
+	RStrBuf *sb = r_strbuf_new ("");
+	ut64 nextaddr = UT64_MAX;
+	ut64 initial_addr = core->addr;
+	ut64 addr = initial_addr;
+repeat:;
+	offpos = NULL;
+	char *cur = r_core_cmd_str (core, "pdco");
+	if (cur) {
+		// we have a function, but we need to find the
+		// current offset inside the output of the decompiler
+		int retries = 10;
+repeat_inside:;
+		char *off = r_str_newf ("0x%08"PFMT64x, addr);
+		offpos = strstr (cur, off);
+		if (!offpos) {
+			addr = find_nextop (core, addr);
+			if (retries > 0) {
+				retries--;
+				free (off);
+				off = r_str_newf ("0x%08"PFMT64x, addr);
+				goto repeat_inside;
+			}
+			R_FREE (cur);
+		}
+		R_FREE (off);
+	}
+	if (offpos) {
+		while (offpos > cur) {
+			if (*offpos == '\n') {
+				offpos++;
+				break;
+			}
+			offpos--;
+		}
+		r_strbuf_append (sb, offpos);
+		lines += r_str_char_count (offpos, '\n');
+#if 0
+		char *lastoff = r_str_rstr (offpos, "0x");
+		nextaddr = r_num_get (core->num, lastoff);
+#else
+		ut64 eof = find_endfunc (core, addr);
+		if (eof != UT64_MAX) {
+			nextaddr = find_nextop (core, eof);
+		}
+#endif
+	} else {
+		nextaddr = addr;
+	}
+				free (cur);
+				cur = NULL;
+	ut64 nextfunc = find_nextfunc (core, nextaddr, 128);
+	if (lines < rows) {
+		if (nextfunc == UT64_MAX) {
+			char *res = r_core_cmd_strf (core, "pd %d @0x%08"PFMT64x"@e:asm.lines=0@e:asm.pseudo=true@e:asm.bytes=0@e:emu.str=true", rows-lines, addr);
+			r_strbuf_append (sb, res);
+			free (res);
+		} else {
+			char *res = r_core_cmd_strf (core, "pD %"PFMT64d" @0x%08"PFMT64x"@e:asm.lines=0@e:asm.pseudo=true@e:asm.bytes=0@e:emu.str=true", nextfunc - addr, addr);
+			r_strbuf_append (sb, res);
+			lines += r_str_char_count (res, '\n');
+			free (res);
+			addr = nextfunc;
+			r_core_seek (core, nextfunc, true);
+			goto repeat;
+		}
+	}
+	char *s = r_strbuf_drain (sb);
+	r_kons_print (core->cons, s);
+	free (s);
+	r_core_seek (core, initial_addr, true);
+}
+
 static void p8fm(RCore *core, ut64 addr, int mode) {
 	if (mode == '?') {
 		r_core_cmd_help_contains (core, help_msg_p8, "p8fm");
@@ -7107,7 +7248,11 @@ static int cmd_print(void *data, const char *input) {
 			processed_cmd = true;
 			break;
 		case 'c': // "pdc" // "pDc"
-			r_core_pseudo_code (core, input + 2);
+			if (input[2] == 'l') {
+				linear_pseudo (core, input + 3);
+			} else {
+				r_core_pseudo_code (core, input + 2);
+			}
 			pd_result = false;
 			processed_cmd = true;
 			break;
@@ -7467,9 +7612,10 @@ static int cmd_print(void *data, const char *input) {
 			return 0;
 		}
 		if (formatted_json) {
-			if (r_cons_context ()->is_html) {
-				r_cons_context ()->is_html = false;
-				r_cons_context ()->was_html = true;
+			RConsContext *c = core->cons->context;
+			if (c->is_html) {
+				c->is_html = false;
+				c->was_html = true;
 			}
 		}
 		if (!processed_cmd) {
@@ -8032,7 +8178,7 @@ static int cmd_print(void *data, const char *input) {
 							for (i = 0; i < olen; i += 32) {
 								int left = R_MIN (olen - i, 32);
 								r_cons_printf ("wx+");
-								r_print_bytes (core->print, obuf + i, left, "%02x");
+								r_print_bytes (core->print, obuf + i, left, "%02x", 0);
 							}
 						} else {
 							R_LOG_ERROR ("Invalid input size %d", olen);
@@ -8226,7 +8372,7 @@ static int cmd_print(void *data, const char *input) {
 		case '0': // "px0"
 			if (l) {
 				int len = r_str_nlen ((const char *)core->block, core->blocksize);
-				r_print_bytes (core->print, core->block, len, "%02x");
+				r_print_bytes (core->print, core->block, len, "%02x", 0);
 			}
 			break;
 		case 'a': // "pxa"
@@ -8837,6 +8983,14 @@ static int cmd_print(void *data, const char *input) {
 			}
 			if (input[1] == 'j') { // "p8j"
 				r_core_cmdf (core, "pcj %s", input + 2);
+			} else if (input[1] == 's') { // "p8s"
+				r_core_block_read (core);
+				block = core->block;
+				r_print_bytes (core->print, block, l, "%02x", ' ');
+			} else if (input[1] == ',') { // "p8,"
+				r_core_block_read (core);
+				block = core->block;
+				r_print_bytes (core->print, block, l, "%02x", ',');
 			} else if (input[1] == 'x') { // "p8x"
 				r_core_block_read (core);
 				block = core->block;
@@ -8847,16 +9001,16 @@ static int cmd_print(void *data, const char *input) {
 				int i;
 				for (i = 0; i < len; i += cols) {
 					if (rad) {
-						r_cons_printf ("wx+ ");
+						r_kons_printf (core->cons, "wx+ ");
 					}
-					r_print_bytes (core->print, block + i, R_MIN (cols, len - cols), "%02x");
+					r_print_bytes (core->print, block + i, R_MIN (cols, len - cols), "%02x", 0);
 				}
 			} else if (input[1] == 'd') { // "p8d"
 				int i;
 				for (i = 0; i < len; i ++) {
-					r_cons_printf ("%d ", block[i]);
+					r_kons_printf (core->cons, "%d ", block[i]);
 				}
-				r_cons_newline ();
+				r_kons_newline (core->cons);
 			} else if (input[1] == 'b') { // "p8b"
 				r_core_cmdf (core, "p8 $BS @ $BB");
 			} else if (input[1] == 'f') { // "p8f"
@@ -8884,9 +9038,9 @@ static int cmd_print(void *data, const char *input) {
 				r_core_block_read (core);
 				block = core->block;
 				if (rad) {
-					r_cons_printf ("wx+ ");
+					r_kons_printf (core->cons, "wx+ ");
 				}
-				r_print_bytes (core->print, block, len, "%02x");
+				r_print_bytes (core->print, block, len, "%02x", 0);
 			}
 		}
 		break;
@@ -8944,7 +9098,7 @@ static int cmd_print(void *data, const char *input) {
 				rows = 1;
 			}
 			int flags = r_cons_canvas_flags (core->cons);
-			c = r_cons_canvas_new (w, rows * 11, flags);
+			c = r_cons_canvas_new (core->cons, w, rows * 11, flags);
 			for (i = 0; i < rows; i++) {
 				for (j = 0; j < cols; j++) {
 					r_cons_canvas_gotoxy (c, j * 20, i * 11);

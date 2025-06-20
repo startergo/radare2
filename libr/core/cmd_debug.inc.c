@@ -366,7 +366,7 @@ static RCoreHelpMessage help_msg_dr = {
 	"drf", "", "show fpu registers (80 bit long double)",
 	"dri", "", "show inverse registers dump (sorted by value)",
 	"drl", "[j]", "list all register names",
-	"drv", "[?]", "show vector registers (also known as sve / packed / multimedia)",
+	"drv", "[?]", "show vector registers (also known as sve / packed / vector)",
 	"dro", "", "show previous (old) values of registers",
 	"drn", "", "list, show or change register alias name (PC,A0, defined by the register profile)",
 	"drp", "[?] ", "display current register profile",
@@ -429,7 +429,7 @@ static RCoreHelpMessage help_msg_drx = {
 };
 
 static RCoreHelpMessage help_msg_drv = {
-	"Usage: drv", " [reg] [idx] [wordsize] [= value]", "Show multimedia packed registers",
+	"Usage: drv", " [reg] [idx] [wordsize] [= value]", "Show vector packed registers",
 	"drv", "", "show XMM registers",
 	"drv", " xmm0", "show all packings of xmm0",
 	"drv", " xmm0 0 32 = 12", "set the first 32 bit word of the xmm0 reg to 12",
@@ -591,15 +591,15 @@ static void cmd_drn(RCore *core, const char *str) {
 	free (foo);
 }
 
-// XXX those tmp files are never removed and we shouldnt use files for this
 static void setRarunProfileString(RCore *core, const char *str) {
-	char *file = r_file_temp ("rarun2");
-	char *s = strdup (str);
-	r_config_set (core->config, "dbg.profile", file);
+	char *s = r_str_newf ("%s\n", str);
 	r_str_replace_char (s, ',', '\n');
-	r_file_dump (file, (const ut8*)s, strlen (s), 0);
-	r_file_dump (file, (const ut8*)"\n", 1, 1);
-	free (file);
+	char *v = r_base64_encode_dyn ((const ut8*)s, -1);
+	char *rs = r_str_newf ("base64:%s", v);
+	r_config_set (core->config, "dbg.profile", rs);
+	free (rs);
+	free (v);
+	free (s);
 }
 
 static void cmd_debug_cont_syscall(RCore *core, const char *_str) {
@@ -2726,7 +2726,7 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 			}
 			ut8 *buf = r_reg_get_bytes (core->dbg->reg, type, &len);
 			if (str[0] == '8') {
-				r_print_bytes (core->print, buf, len, "%02x");
+				r_print_bytes (core->print, buf, len, "%02x", 0);
 			} else {
 				switch (str[1]) {
 				case '1':
@@ -3021,7 +3021,7 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 						}
 					}
 				} else {
-					R_LOG_ERROR ("cannot find multimedia register '%s'", name);
+					R_LOG_ERROR ("Cannot find vector register '%s'", name);
 				}
 				free (name);
 			} else {
@@ -3088,7 +3088,7 @@ static void cmd_debug_reg(RCore *core, const char *str) {
 				}
 			} else {
 				/* note, that negative type forces sync to print the regs from the backend */
-				R_LOG_ERROR ("cannot find multimedia register '%s'", name);
+				R_LOG_ERROR ("cannot find vector register '%s'", name);
 			}
 			free (name);
 		} else if (!str[1]) {

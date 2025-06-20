@@ -76,6 +76,7 @@ static RCoreHelpMessage help_msg_iS = {
 	"iS,", "[table-query]", "list sections in table using given expression",
 	"iS=", "", "show ascii-art color bars with the section ranges",
 	"iSS", "[,tablequery]", "list memory segments (maps with om)",
+	"iSm", "[cj]", "list sections with the symbols contained (iSmc for count only, iSmj for json)",
 	NULL
 };
 
@@ -136,15 +137,24 @@ static RCoreHelpMessage help_msg_i = {
 	NULL
 };
 
-// TODO: this command needs a refactoring
+static RCoreHelpMessage help_msg_idl = {
+	"Usage: idl", "", "Debug information",
+	"idl", "", "show debuglink file",
+	"idl*", "", "show command to load the debuglink file",
+	"idld", "", "download associated debuglink file",
+	"idld*", "", "show url to pull the debuglink file",
+	NULL
+};
+
 static RCoreHelpMessage help_msg_id = {
-	"Usage: idp", "", "Debug information",
+	"Usage: id", "", "Debug information",
 	"id", "", "show DWARF source lines information",
 	"idj", "", "show addrline information in json format",
+	"idl", "[?]", "show debug link file name",
 	"idp", " [file.pdb]", "load pdb file information",
+	"idpd", "", "download pdb file on remote server",
 	"idpi", " [file.pdb]", "show pdb file information",
 	"idpi*", "", "show symbols from pdb as flags (prefix with dot to import)",
-	"idpd", "", "download pdb file on remote server",
 	"idx", "", "display source files used via dwarf (previously known as iX)",
 	NULL
 };
@@ -1466,14 +1476,89 @@ static void cmd_iz(RCore *core, PJ *pj, int mode, int is_array, bool va, const c
 			RBinFile *cur = core->bin->cur;
 			r_list_foreach (bfiles, iter, bf) {
 				core->bin->cur = bf;
-				RBinObject *obj = r_bin_cur_object (core->bin);
+				RBinObject *bo = r_bin_cur_object (core->bin);
 				RBININFO ("strings", R_CORE_BIN_ACC_STRINGS, NULL,
-						(obj && obj->strings)? r_list_length (obj->strings): 0);
+						(bo && bo->strings)? r_list_length (bo->strings): 0);
 			}
 			core->bin->cur = cur;
 			r_list_free (bfiles);
 		} else {
 			//
+		}
+	}
+}
+
+static bool inrange(RBinSection *sec, RBinSymbol *sym) {
+	if (sym->vaddr >= sec->vaddr) {
+		if (sym->vaddr < sec->vaddr + sec->vsize) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void cmd_iSm(RCore *core, const char *input, PJ **_pj, int mode, const bool va, const bool is_array) {
+	// TODO: Add iSm= to show with progressbars
+	RListIter *iter, *iter2;
+	RBinSection *sec;
+	RBinSymbol *sym;
+	bool countmode = (input[2] == 'c');
+
+	RBinFile *bf = core->bin->cur;
+	if (!bf) {
+		return;
+	}
+	RBinObject *bo = bf->bo;
+	if (!bo) {
+		return;
+	}
+
+	PJ *pj = *_pj;
+	RList *symbols = r_bin_file_get_symbols (bf);
+	r_list_foreach (bo->sections, iter, sec) {
+		int vsize = sec->vsize;
+		if (vsize < 1) {
+			continue;
+		}
+		if (pj) {
+			pj_o (pj);
+			pj_ks (pj, "section", sec->name);
+			pj_ka (pj, "symbols");
+			r_list_foreach (symbols, iter2, sym) {
+				if (inrange (sec, sym)) {
+					pj_o (pj);
+					pj_ks (pj, "name", r_bin_name_tostring (sym->name));
+					if (sym->size > 0) {
+						pj_ki (pj, "size", sym->size);
+						pj_kd (pj, "percent", (sym->size * 100 ) / vsize);
+					}
+					pj_end (pj);
+				}
+			}
+			pj_end (*_pj);
+			pj_end (*_pj);
+		} else {
+			char *hsz = r_num_units (NULL, 0, sec->vsize);
+			r_kons_printf (core->cons, "0x%08"PFMT64x"-0x%08"PFMT64x" %8s %s",
+					sec->vaddr, sec->vaddr + sec->vsize, hsz, sec->name);
+			free (hsz);
+			if (countmode) {
+				int count = 0;
+				r_list_foreach (symbols, iter2, sym) {
+					if (inrange (sec, sym)) {
+						count++;
+					}
+				}
+				r_kons_printf (core->cons, " = %d symbols\n", count);
+			} else {
+				r_kons_newline (core->cons);
+				r_list_foreach (symbols, iter2, sym) {
+					if (inrange (sec, sym)) {
+						r_kons_printf (core->cons, "    - %8d %s\n",
+								sym->size, r_bin_name_tostring (sym->name));
+					}
+				}
+			}
 		}
 	}
 }
@@ -1488,6 +1573,8 @@ static void cmd_iS(RCore *core, const char *input, PJ **_pj, int mode, const boo
 	}
 	if (!input[1]) {
 		RBININFO ("sections", R_CORE_BIN_ACC_SECTIONS, NULL, 0);
+	} else if (input[1] == 'm') {
+		cmd_iSm (core, input, &pj, mode, va, is_array);
 	} else if (input[1] == 'S' && !input[2]) { // "iSS"
 		RBININFO ("segments", R_CORE_BIN_ACC_SEGMENTS, NULL, 0);
 	} else { // iS/iSS entropy,sha1
@@ -1633,7 +1720,7 @@ static void cmd_it(RCore *core, PJ *pj) {
 	r_list_free (old_hashes);
 }
 
-static void cmd_idp (RCore *core, PJ *pj, const char *input, bool is_array, int mode) {
+static void cmd_idp(RCore *core, PJ *pj, const char *input, bool is_array, int mode) {
 	SPDBOptions pdbopts;
 	RBinInfo *info;
 	bool file_found;
@@ -1753,18 +1840,98 @@ static void cmd_idp (RCore *core, PJ *pj, const char *input, bool is_array, int 
 
 static void cmd_id(RCore *core, PJ *pj, const char *input, bool is_array, int mode) {
 	const bool va = r_config_get_b (core->config, "io.va");
-	const char input1 = input[1];
-	if (input1 == 'x') { // "idx" "iX"
+	switch (input[1]) {
+	case 'l': // "idl"
+		if (input[2] == '?') {
+			r_core_cmd_help (core, help_msg_idl);
+		} else {
+			char *linkname = NULL;
+			RBinInfo *info = r_bin_get_info (core->bin);
+			if (info && info->dbglink) {
+				linkname = strdup (info->dbglink);
+				char *dot = (char *)r_str_lchr (linkname, '.');
+				if (dot) {
+					*dot = 0;
+				}
+			}
+			switch (input[2]) {
+			case 'd':
+				if (linkname) {
+					char *url = r_str_newf ("%s/%s/debuginfo", r_config_get (core->config, "dbg.linkurl"), linkname);
+					if (input[3] == '*') {
+						r_kons_printf (core->cons, "%s\n", url);
+					} else {
+						char *dir_debuglink = strdup (r_config_get (core->config, "dir.debuglink"));
+						char *colon = strchr (dir_debuglink, ':');
+						if (colon) {
+							*colon = 0;
+						}
+						// TODO: check if file exists before downloading
+						// TODO: use seprate path instead of the first one from the list?
+						R_LOG_WARN ("This curl oneliner is subject to command injection. Use it at your own risk");
+						r_sys_cmdf ("curl -o \"%s/%s\" \"%s\"", dir_debuglink, info->dbglink, url);
+						free (dir_debuglink);
+					}
+					free (url);
+				} else {
+					R_LOG_ERROR ("No debuglink file to download");
+				}
+				break;
+			case '*':
+				if (linkname) {
+					char *dirlink = strdup (r_config_get (core->config, "dir.debuglink"));
+					RList *paths = r_str_split_list (dirlink, ":", 0);
+					RListIter *iter;
+					bool found = false;
+					char *path;
+					r_list_foreach (paths, iter, path) {
+						char *f = r_str_newf ("%s/%s", path, info->dbglink);
+						if (r_file_exists (f)) {
+							found = true;
+							r_kons_printf (core->cons, "'obf %s\n", f);
+							free (f);
+							break;
+						}
+						free (f);
+					}
+					r_list_free (paths);
+					free (dirlink);
+					if (!found) {
+						R_LOG_ERROR ("Cannot find %s in dir.debuglink. Use idld instead", info->dbglink);
+						r_kons_printf (core->cons, "'obf %s\n", info->dbglink);
+					}
+				}
+				break;
+			case 0:
+				if (linkname) {
+					r_kons_println (core->cons, info->dbglink);
+				}
+				break;
+			default:
+				r_core_return_invalid_command (core, "idl", input[2]);
+				break;
+			}
+			free (linkname);
+		}
+		break;
+	case 'x': // "idx"
 		RBININFO ("source", R_CORE_BIN_ACC_SOURCE, NULL, 0);
-	} else if (input1 == 'p') { // "idp"
+		break;
+	case 'p': // "idp"
 		cmd_idp (core, pj, input, is_array, mode);
-	} else if (input1 == '?') { // "id?"
+		break;
+	case '?':
 		r_core_cmd_help (core, help_msg_id);
-		input++;
-	} else if (input1 == 'q' || input1 == 'j' || !input1 || input1 == '*') { // "idj"
+		break;
+	case 0:
+	case '*':
+	case 'j':
+	case 'q':
 		RBININFO ("dwarf", R_CORE_BIN_ACC_ADDRLINE, NULL, -1);
-	} else {
+		break;
+	default:
 		r_core_return_invalid_command (core, "id", input[1]);
+		break;
 	}
 }
 
@@ -1808,7 +1975,7 @@ static void cmd_is(RCore *core, const char *input, PJ *pj, bool is_array, int mo
 		}
 #endif
 	}
-	input = input + strlen (input) - 1;
+	input += strlen (input) - 1;
 	r_list_free (objs);
 }
 
@@ -2415,15 +2582,26 @@ static int cmd_info(void *data, const char *input) {
 		}
 		break;
 	case 's': // "is"
-		if (input[1] == 'e') { // "ise"
+		switch (input[1]) {
+		case 'e': // "ise"
 			r_core_cmdf (core, "ies%s", input + 1);
-			break;
-		}
-		if (input[1] == 'j' && input[2] == '.') { // "isj" "is."
+			return 0;
+		case 'j':
 			mode = R_MODE_JSON;
 			INIT_PJ ();
-		} else if (input[1] == 'q' && input[2] == 'q') { // "isq"
-			mode = R_MODE_SIMPLEST;
+			break;
+		case 'q':
+			if (input[2] == 'q') {
+				mode = R_MODE_SIMPLEST;
+			}
+		// case ',':
+		case ' ':
+		case 0:
+		case '.':
+			break;
+		default:
+			r_core_return_invalid_command (core, "is", input[1]);
+			break;
 		}
 		cmd_is (core, input, pj, is_array, mode, va);
 		break;

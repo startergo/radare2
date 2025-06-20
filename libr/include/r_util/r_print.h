@@ -94,8 +94,8 @@ typedef struct r_print_t {
 	char datefmt[32];
 	int datezone;
 	int (*write)(const unsigned char *buf, int len);
-	PrintfCallback oprintf;
-	PrintfCallback cb_printf;
+	// PrintfCallback oprintf;
+	// PrintfCallback cb_printf;
 	// PrintfCallback cb_eprintf;
 	// char *(*cb_color)(int idx, int last, bool bg);
 	bool scr_prompt;
@@ -180,6 +180,7 @@ R_API void r_print_set_is_interrupted_cb(RPrintIsInterruptedCallback cb);
 
 /* ... */
 R_API char *r_print_hexpair(RPrint *p, const char *str, int idx);
+R_API void r_print_printf(const RPrint *p, const char *fmt, ...);
 R_API void r_print_hex_from_bin(RPrint *p, char *bin_str);
 R_API void r_print_bin_from_str(RPrint *p, char *str);
 R_API RPrint *r_print_new(void);
@@ -196,7 +197,7 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 R_API void r_print_hexdump_simple(const ut8 *buf, int len);
 R_API int r_print_jsondump(RPrint *p, const ut8 *buf, int len, int wordsize);
 R_API void r_print_hexdiff(RPrint *p, ut64 aa, const ut8* a, ut64 ba, const ut8 *b, int len, int scndcol);
-R_API void r_print_bytes(RPrint *p, const ut8* buf, int len, const char *fmt);
+R_API void r_print_bytes(RPrint *p, const ut8* buf, int len, const char *fmt, const char sep);
 R_API void r_print_fill(RPrint *p, const ut8 *arr, int size, ut64 addr, int step);
 R_API void r_print_byte(RPrint *p, ut64 addr, const char *fmt, int idx, ut8 ch);
 R_API const char *r_print_byte_color(RPrint *p, ut64 addr, int ch);
@@ -234,7 +235,6 @@ typedef struct r_print_format_t {
 	int oldslide;
 	int ident;
 	// RStrBuf *sb to hold a string for plaintext formats
-	// indentlevel (or nestlevel)
 } RPrintFormat;
 
 R_API int r_print_format_struct_size(RPrint *p, const char *format, int mode, int n);
@@ -284,6 +284,7 @@ R_API ut32 r_print_rowoff(RPrint *p, int i);
 R_API void r_print_set_rowoff(RPrint *p, int i, ut32 offset, bool overwrite);
 R_API int r_print_row_at_off(RPrint *p, ut32 offset);
 R_API void r_print_pie(RPrint *p, int nvalues, int *values, const char **text, int size);
+R_API char *r_print_treemap(int n, int *values, const char **labels, int width, int height);
 R_API void r_print_graphline(RPrint *print, const ut8 *buf, size_t len);
 
 // WIP

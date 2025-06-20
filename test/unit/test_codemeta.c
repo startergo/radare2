@@ -5,6 +5,8 @@
 
 #include "minunit.h"
 
+// Using r_codemeta_print_json defined in libr/anal/codemeta.c
+
 static RCodeMetaItem make_code_annotation(int st, int en, RCodeMetaItemType typec,
 	ut64 offset, RSyntaxHighlightType types) {
 	RCodeMetaItem annotation = {0};
@@ -289,16 +291,10 @@ static bool test_r_codemeta_line_offsets(void) {
 
 static bool test_r_codemeta_print_json(void) {
 	RCodeMeta *code = get_hello_world ();
-	char *actual;
-	char *expected = "{\"code\":\"\\nvoid main(void)\\n{\\n    sym.imp.puts(\\\"Hello, World!\\\");\\n    return;\\n}\\n\",\"annotations\":[{\"start\":1,\"end\":5,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"datatype\"},{\"start\":6,\"end\":10,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"function_name\"},{\"start\":11,\"end\":15,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"keyword\"},{\"start\":23,\"end\":35,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"function_name\"},{\"start\":36,\"end\":51,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"constant_variable\"},{\"start\":23,\"end\":52,\"type\":\"offset\",\"offset\":4440},{\"start\":58,\"end\":64,\"type\":\"offset\",\"offset\":4447},{\"start\":58,\"end\":64,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"keyword\"},{\"start\":58,\"end\":64,\"type\":\"offset\",\"offset\":4447}]}\n";
-	RCons *cons = r_cons_new ();
-	r_kons_push (cons);
-	r_codemeta_print_json (code);
-	actual = strdup (r_kons_get_buffer (cons, NULL));
-	r_kons_pop (cons);
+	char *expected = "{\"code\":\"\\nvoid main(void)\\n{\\n    sym.imp.puts(\\\"Hello, World!\\\");\\n    return;\\n}\\n\",\"annotations\":[{\"start\":1,\"end\":5,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"datatype\"},{\"start\":6,\"end\":10,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"function_name\"},{\"start\":11,\"end\":15,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"keyword\"},{\"start\":23,\"end\":35,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"function_name\"},{\"start\":36,\"end\":51,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"constant_variable\"},{\"start\":23,\"end\":52,\"type\":\"offset\",\"offset\":4440},{\"start\":58,\"end\":64,\"type\":\"offset\",\"offset\":4447},{\"start\":58,\"end\":64,\"type\":\"syntax_highlight\",\"syntax_highlight\":\"keyword\"},{\"start\":58,\"end\":64,\"type\":\"offset\",\"offset\":4447}]}";
+	char *actual = r_codemeta_print_json (code);
 	mu_assert_streq (actual, expected, "pdgj OUTPUT DOES NOT MATCH");
 
-	r_kons_free (cons);
 	free (actual);
 	r_codemeta_free (code);
 	mu_end;
@@ -309,15 +305,10 @@ static bool test_r_codemeta_print_json(void) {
  */
 static bool test_r_codemeta_print_json_context_annotations(void) {
 	RCodeMeta *code = get_all_context_annotated_code ();
-	char *expected = "{\"code\":\"\\nfunc-name\\nconst-var\\n   global-var(\\\"Hello, local-var\\\");\\n    function-param\\n}\\n\",\"annotations\":[{\"start\":1,\"end\":10,\"type\":\"function_name\",\"name\":\"func-name\",\"offset\":1234},{\"start\":10,\"end\":19,\"type\":\"constant_variable\",\"offset\":12345},{\"start\":23,\"end\":33,\"type\":\"global_variable\",\"offset\":123456},{\"start\":42,\"end\":51,\"type\":\"local_variable\",\"name\":\"local-var\"},{\"start\":59,\"end\":73,\"type\":\"function_parameter\",\"name\":\"function-param\"}]}\n";
-	RCons *cons = r_cons_new ();
-	r_kons_push (cons);
-	r_codemeta_print_json (code);
-	char *actual = strdup (r_cons_get_buffer ());
-	r_kons_pop (cons);
+	char *expected = "{\"code\":\"\\nfunc-name\\nconst-var\\n   global-var(\\\"Hello, local-var\\\");\\n    function-param\\n}\\n\",\"annotations\":[{\"start\":1,\"end\":10,\"type\":\"function_name\",\"name\":\"func-name\",\"offset\":1234},{\"start\":10,\"end\":19,\"type\":\"constant_variable\",\"offset\":12345},{\"start\":23,\"end\":33,\"type\":\"global_variable\",\"offset\":123456},{\"start\":42,\"end\":51,\"type\":\"local_variable\",\"name\":\"local-var\"},{\"start\":59,\"end\":73,\"type\":\"function_parameter\",\"name\":\"function-param\"}]}";
+	char *actual = r_codemeta_print_json (code);
 	mu_assert_streq (actual, expected, "r_codemeta_print_json() output doesn't match with the expected output");
 	free (actual);
-	r_kons_free (cons);
 	r_codemeta_free (code);
 	mu_end;
 }
@@ -332,13 +323,10 @@ static bool test_r_codemeta_print(void) {
 			       "    sym.imp.puts(\"Hello, World!\");\n"
 			       "    return;\n"
 			       "}\n";
-	RCons *cons = r_cons_new ();
-	r_kons_push (cons);
-	r_codemeta_print (code, NULL);
-	actual = strdup (r_cons_get_buffer ());
-	r_kons_pop (cons);
+	
+	actual = r_codemeta_print (code, NULL);
 	mu_assert_streq (actual, expected_first, "pdg OUTPUT DOES NOT MATCH");
-	r_kons_pop (cons);
+	free (actual);
 
 	//Checking with offset - pdgo
 	RVector *offsets = r_codemeta_line_offsets (code);
@@ -348,15 +336,10 @@ static bool test_r_codemeta_print(void) {
 				"    0x00001158    |    sym.imp.puts(\"Hello, World!\");\n"
 				"    0x0000115f    |    return;\n"
 				"                  |}\n";
-	r_codemeta_print (code, offsets);
-	free (actual);
-	actual = strdup (r_cons_get_buffer ());
-	r_kons_pop (cons);
+	actual = r_codemeta_print (code, offsets);
 	mu_assert_streq (actual, expected_second, "pdgo OUTPUT DOES NOT MATCH");
-	r_kons_pop (cons);
-
-	r_kons_free (cons);
 	free (actual);
+
 	r_vector_free (offsets);
 	r_codemeta_free (code);
 	mu_end;
@@ -367,14 +350,10 @@ static bool test_r_codemeta_print_comment_cmds(void) {
 	char *actual;
 	char *expected = "CCu base64:c3ltLmltcC5wdXRzKCJIZWxsbywgV29ybGQhIik= @ 0x1158\n"
 			 "CCu base64:cmV0dXJu @ 0x115f\n";
-	RCons *cons = r_cons_new ();
-	r_kons_push (cons);
-	r_codemeta_print_comment_cmds (code);
-	actual = strdup (r_cons_get_buffer ());
-	r_kons_pop (cons);
+	
+	actual = r_codemeta_print_comment_cmds (code);
 	mu_assert_streq (actual, expected, "pdg* OUTPUT DOES NOT MATCH");
 
-	r_kons_free (cons);
 	free (actual);
 	r_codemeta_free (code);
 	mu_end;

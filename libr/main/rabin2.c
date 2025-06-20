@@ -481,7 +481,7 @@ error:
 	return false;
 }
 
-static int rabin_show_srcline(RBin *bin, ut64 at) {
+static bool rabin_show_srcline(RBin *bin, ut64 at) {
 	char *srcline;
 	if (at != UT64_MAX && (srcline = r_bin_addrline_tostring (bin, at, 1))) {
 		printf ("%s\n", srcline);
@@ -492,7 +492,7 @@ static int rabin_show_srcline(RBin *bin, ut64 at) {
 }
 
 /* bin callback */
-static int __lib_bin_cb(RLibPlugin *pl, void *user, void *data) {
+static bool __lib_bin_cb(RLibPlugin *pl, void *user, void *data) {
 	struct r_bin_plugin_t *hand = (struct r_bin_plugin_t *)data;
 	RBin *bin = user;
 	//printf(" * Added (dis)assembly plugin\n");
@@ -500,12 +500,12 @@ static int __lib_bin_cb(RLibPlugin *pl, void *user, void *data) {
 	return true;
 }
 
-static int __lib_bin_dt(RLibPlugin *pl, void *p, void *u) {
+static bool __lib_bin_dt(RLibPlugin *pl, void *p, void *u) {
 	return true;
 }
 
 /* binxtr callback */
-static int __lib_bin_xtr_cb(RLibPlugin *pl, void *user, void *data) {
+static bool __lib_bin_xtr_cb(RLibPlugin *pl, void *user, void *data) {
 	struct r_bin_xtr_plugin_t *hand = (struct r_bin_xtr_plugin_t *)data;
 	RBin *bin = user;
 	//printf(" * Added (dis)assembly plugin\n");
@@ -513,12 +513,12 @@ static int __lib_bin_xtr_cb(RLibPlugin *pl, void *user, void *data) {
 	return true;
 }
 
-static int __lib_bin_xtr_dt(RLibPlugin *pl, void *p, void *u) {
+static bool __lib_bin_xtr_dt(RLibPlugin *pl, void *p, void *u) {
 	return true;
 }
 
 /* binldr callback */
-static int __lib_bin_ldr_cb(RLibPlugin *pl, void *user, void *data) {
+static bool __lib_bin_ldr_cb(RLibPlugin *pl, void *user, void *data) {
 	struct r_bin_ldr_plugin_t *hand = (struct r_bin_ldr_plugin_t *)data;
 	RBin *bin = user;
 	//printf(" * Added (dis)assembly plugin\n");
@@ -526,7 +526,7 @@ static int __lib_bin_ldr_cb(RLibPlugin *pl, void *user, void *data) {
 	return true;
 }
 
-static int __lib_bin_ldr_dt(RLibPlugin *pl, void *p, void *u) {
+static bool __lib_bin_ldr_dt(RLibPlugin *pl, void *p, void *u) {
 	return true;
 }
 
@@ -547,10 +547,10 @@ static char *__demangleAs(RBin *bin, int type, const char *file) {
 	return res;
 }
 
-static void __listPlugins(RBin *bin, const char* plugin_name, PJ *pj, int rad) {
+static void list_plugins(RBin *bin, const char* plugin_name, PJ *pj, int rad) {
 	int format = (rad == R_MODE_JSON) ? 'j': rad? 'q': 0;
 	bin->cb_printf = (PrintfCallback)printf;
-	if (plugin_name) {
+	if (R_STR_ISNOTEMPTY (plugin_name)) {
 		r_bin_list_plugin (bin, plugin_name, pj, format);
 	} else {
 		r_bin_list (bin, pj, format);
@@ -927,7 +927,7 @@ R_API int r_main_rabin2(int argc, const char **argv) {
 		if (opt.ind < argc) {
 			plugin_name = argv[opt.ind];
 		}
-		__listPlugins (bin, plugin_name, pj, rad);
+		list_plugins (bin, plugin_name, pj, rad);
 		if (rad == R_MODE_JSON) {
 			r_cons_println (pj_string (pj));
 			r_cons_flush ();
@@ -1088,7 +1088,7 @@ R_API int r_main_rabin2(int argc, const char **argv) {
 			return waitpid (child, NULL, 0);
 		}
 #endif
-		void *addr = r_lib_dl_open (file);
+		void *addr = r_lib_dl_open (file, false);
 		if (addr) {
 			R_LOG_INFO ("%s is loaded at 0x%"PFMT64x, file, (ut64)(size_t)(addr));
 			r_lib_dl_close (addr);

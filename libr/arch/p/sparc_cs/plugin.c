@@ -195,6 +195,9 @@ performed in big-endian byte order.
 				op->type = R_ANAL_OP_TYPE_CALL;
 				op->delay = 1;
 				op->jump = INSOP(0).imm;
+				if (as->config->bits == 32) {
+					op->jump &= UT32_MAX;
+				}
 				op->fail = addr + 8;
 				break;
 			}
@@ -458,7 +461,7 @@ const RArchPlugin r_arch_plugin_sparc_cs = {
 	.meta = {
 		.name = "sparc",
 		.author = "pancake",
-		.desc = "Capstone SPARC architecture",
+		.desc = "Scalable Processor Architecture (capstone)",
 		.license = "Apache-2.0",
 	},
 	.arch = "sparc",

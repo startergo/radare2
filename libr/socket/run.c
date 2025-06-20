@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2024 - pancake */
+/* radare - LGPL - Copyright 2014-2025 - pancake */
 
 /* this helper api is here because it depends on r_util and r_socket */
 /* we should find a better place for it. r_io? */
@@ -77,7 +77,7 @@ static void dyn_init(void) {
 	// attempt to fall back on libutil if we failed to load anything
 	if (!(dyn_openpty && dyn_login_tty && dyn_forkpty)) {
 		void *libutil;
-		if (!(libutil = r_lib_dl_open ("libutil." R_LIB_EXT))) {
+		if (!(libutil = r_lib_dl_open ("libutil." R_LIB_EXT, false))) {
 			R_LOG_ERROR ("rarun2: Could not find PTY utils, failed to load libutil" R_LIB_EXT);
 			return;
 		}
@@ -541,6 +541,15 @@ static bool handle_redirection(const char *cmd, bool in, bool out, bool err) {
 
 R_API bool r_run_parsefile(RRunProfile *p, const char *b) {
 	R_RETURN_VAL_IF_FAIL (p && b, false);
+	if (r_str_startswith (b, "base64:")) {
+		int len;
+		char *s = (char *)r_base64_decode_dyn (b + 7, -1, &len);
+		char *res = r_str_ndup (s, len);
+		bool ret = r_run_parse (p, res);
+		free (res);
+		free (s);
+		return ret;
+	}
 	char *s = r_file_slurp (b, NULL);
 	if (s) {
 		bool ret = r_run_parse (p, s);
@@ -567,6 +576,8 @@ R_API bool r_run_parseline(RRunProfile *p, const char *b) {
 	if (!strcmp (b, "program")) {
 		p->_args[0] = strdup (e);
 		p->_program = strdup (e);
+	} else if (!strcmp (b, "noprogram")) {
+		p->_noprogram = true;
 	} else if (!strcmp (b, "daemon")) {
 		p->_daemon = true;
 	} else if (!strcmp (b, "system")) {
@@ -577,7 +588,7 @@ R_API bool r_run_parseline(RRunProfile *p, const char *b) {
 		p->_runlib_fcn = strdup (e);
 	} else if (!strcmp (b, "aslr")) {
 		p->_aslr = r_str_is_true (e);
-	} else if (!strcmp (b, "pid")) {
+	} else if (!strcmp (b, "pid") || !strcmp (b, "getpid")) {
 		p->_pid = atoi (e);
 		if (!p->_pid) {
 			p->_pid = r_str_is_true (e);
@@ -697,15 +708,23 @@ R_API bool r_run_parseline(RRunProfile *p, const char *b) {
 	} else if (!strcmp (b, "unsetenv")) {
 		r_sys_setenv (e, NULL);
 	} else if (!strcmp (b, "setenv")) {
-		char *V, *v = strchr (e, '=');
+		char *v = strchr (e, '=');
 		if (v) {
 			*v++ = 0;
-			V = getstr (v, NULL);
+#if 0
+			char *V = getstr (v, NULL);
 			r_sys_setenv (e, V);
+#else
+			size_t len;
+			ut8 *V = (ut8*)getstr (v, &len);
+			r_sys_setenv2 (e, V, len);
+#endif
 			free (V);
 		}
 	} else if (!strcmp (b, "clearenv")) {
 		r_sys_clearenv ();
+	} else {
+		R_LOG_DEBUG ("Unknown directive %s", b);
 	}
 	if (must_free == true) {
 		free (e);
@@ -900,14 +919,14 @@ static bool redirect_socket_to_pty(RSocket *sock) {
 }
 
 R_API bool r_run_config_env(RRunProfile *p) {
-	int ret;
-
 #if HAVE_PTY
 	dyn_init ();
 #endif
-	if (!p->_program && !p->_system && !p->_runlib) {
-		R_LOG_ERROR ("No program, system or runlib rule defined");
-		return false;
+	if (!p->_noprogram) {
+		if (!p->_program && !p->_system && !p->_runlib) {
+			R_LOG_ERROR ("No program, system or runlib rule defined");
+			return false;
+		}
 	}
 	// when IO is redirected to a process, handle them together
 	if (!handle_redirection (p->_stdio, true, true, false)) {
@@ -1054,13 +1073,13 @@ R_API bool r_run_config_env(RRunProfile *p) {
 	}
 #else
 	if (p->_chgdir) {
-		ret = chdir (p->_chgdir);
+		int ret = chdir (p->_chgdir);
 		if (ret < 0) {
 			return false;
 		}
 	}
 	if (p->_chroot) {
-		ret = chdir (p->_chroot);
+		int ret = chdir (p->_chroot);
 		if (ret < 0) {
 			return false;
 		}
@@ -1068,7 +1087,7 @@ R_API bool r_run_config_env(RRunProfile *p) {
 #endif
 #if R2__UNIX__ && !__wasi__
 	if (p->_setuid) {
-		ret = setgroups (0, NULL);
+		int ret = setgroups (0, NULL);
 		if (ret < 0) {
 			return false;
 		}
@@ -1078,7 +1097,7 @@ R_API bool r_run_config_env(RRunProfile *p) {
 		}
 	}
 	if (p->_seteuid) {
-		ret = seteuid (atoi (p->_seteuid));
+		int ret = seteuid (atoi (p->_seteuid));
 		if (ret < 0) {
 			return false;
 		}
@@ -1096,7 +1115,7 @@ R_API bool r_run_config_env(RRunProfile *p) {
 #if __wasi__
 		R_LOG_WARN ("Directive 'setgid' not supported in wasm");
 #else
-		ret = setgid (atoi (p->_setgid));
+		int ret = setgid (atoi (p->_setgid));
 		if (ret < 0) {
 			return false;
 		}
@@ -1207,6 +1226,19 @@ static void time_end(bool chk, ut64 time_begin) {
 // NOTE: return value is like in unix return code (0 = ok, 1 = not ok)
 R_API bool r_run_start(RRunProfile *p) {
 	R_RETURN_VAL_IF_FAIL (p, false);
+	if (p->_noprogram) {
+		if (p->_pid) {
+			R_LOG_INFO ("pid = %d", r_sys_getpid ());
+		}
+		while (true) {
+#if R2__UNIX__ && !__wasi__
+			pause ();
+#else
+			r_sys_sleep (1);
+#endif
+		}
+		return true;
+	}
 #if LIBC_HAVE_FORK
 	if (p->_execve) {
 		exit (execv (p->_program, (char* const*)p->_args));
@@ -1434,7 +1466,7 @@ R_API bool r_run_start(RRunProfile *p) {
 			R_LOG_ERROR ("No function specified. Please set runlib.fcn");
 			return false;
 		}
-		void *addr = r_lib_dl_open (p->_runlib);
+		void *addr = r_lib_dl_open (p->_runlib, false);
 		if (!addr) {
 			R_LOG_ERROR ("Could not load the library '%s'", p->_runlib);
 			return false;

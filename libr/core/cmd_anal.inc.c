@@ -120,7 +120,7 @@ static RCoreHelpMessage help_msg_ano = {
 	"ano-", "*", "remove all annotations for current file",
 	"ano-", "$$", "remove annotations for current function",
 	"ano*", "", "dump all annotations in ano= commands",
-	"ano=", "[base64:]text", "set anotation text in base64 for current function",
+	"ano=", "[:cmd]|[base64:]|text", "set function anotation command, plain text or base64",
 	"anoe", "", "edit annotation using cfg.editor",
 	"anos", "", "show current function annotation",
 	"anol", "", "display first line of function annotation if any",
@@ -1496,7 +1496,7 @@ static bool cmd_anal_aaft(RCore *core) {
 	return true;
 }
 
-static void type_cmd(RCore *core, const char *input) {
+static void cmd_aft(RCore *core, const char *input) {
 	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->addr, -1);
 	if (!fcn && *input != '?') {
 		R_LOG_WARN ("cant find function here");
@@ -1687,6 +1687,14 @@ static void list_vars(RCore *core, RAnalFunction *fcn, PJ *pj, int type, const c
 		return;
 	}
 	if (type == '*') {
+		r_list_foreach (list, iter, var) {
+			r_cons_printf ("afv%c %d %s %s\n", var->kind, var->delta,
+					var->name, var->type);
+		}
+		r_list_free (list);
+		return;
+	}
+	if (type == 'd') {
 		const char *bp = r_reg_alias_getname (core->anal->reg, R_REG_ALIAS_BP);
 		r_cons_printf ("f-fcnvar*\n");
 		r_list_foreach (list, iter, var) {
@@ -1915,7 +1923,7 @@ static void __cmd_afvf(RCore *core, const char *input) {
 
 }
 
-static int var_cmd(RCore *core, const char *str) {
+static int cmd_afv(RCore *core, const char *str) {
 	int delta, type = *str, res = true;
 	RAnalVar *v1;
 	RAnalFunction *fcn = r_anal_get_fcn_in (core->anal, core->addr, -1);
@@ -1927,11 +1935,29 @@ static int var_cmd(RCore *core, const char *str) {
 		case 'j':
 			r_cons_println ("{}");
 			break;
+		case 0:
+			R_LOG_ERROR ("No function found in current offset");
+			break;
 		default:
 			if (str[1] == '?') {
-				char cmd[5] = "afvb";
-				cmd[3] = str[0];
-				r_core_cmd_help_match (core, help_msg_afv, cmd);
+				switch (str[0]) {
+				case 'b':
+					r_core_cmd_help (core, help_msg_afvb);
+					break;
+				case 's':
+					r_core_cmd_help (core, help_msg_afvs);
+					break;
+				case 'r':
+					r_core_cmd_help (core, help_msg_afvr);
+					break;
+				default:
+					{
+						char cmd[] = "afvr";
+						cmd[3] = str[0];
+						r_core_cmd_help_contains (core, help_msg_afv, cmd);
+					}
+					break;
+				}
 			} else {
 				R_LOG_ERROR ("No function found in current offset");
 			}
@@ -2086,6 +2112,8 @@ static int var_cmd(RCore *core, const char *str) {
 	case 'd': // "afvd"
 		if (!fcn) {
 			R_LOG_ERROR ("Cannot find function");
+		} else if (str[1] == '*') {
+			list_vars (core, fcn, NULL, 'd', NULL);
 		} else if (str[1]) {
 			p = strchr (ostr, ' ');
 			if (!p) {
@@ -2261,7 +2289,7 @@ static int var_cmd(RCore *core, const char *str) {
 		*name++ = 0;
 		r_str_trim_head (name);
 
-		if (type == 'r') { //registers
+		if (type == 'r') { // registers
 			RRegItem *ri = r_reg_get (core->anal->reg, p, -1);
 			if (!ri) {
 				R_LOG_ERROR ("Register not found");
@@ -2903,18 +2931,22 @@ static void core_anal_bytes(RCore *core, const ut8 *buf, int len, int nops, int 
 			{
 				const int left = len - idx;
 				const int instlen = R_MIN (op.size, left);
-				if (smart_mask) {
-					char *maskstr = r_core_cmd_strf (core, "aobm@0x%08"PFMT64x, op.addr);
-					r_str_trim (maskstr);
-					printline ("mask", "%s\n", maskstr);
-					free (maskstr);
+				if (instlen > 0) {
+					if (smart_mask) {
+						char *maskstr = r_core_cmd_strf (core, "aobm@0x%08"PFMT64x, op.addr);
+						r_str_trim (maskstr);
+						printline ("mask", "%s\n", maskstr);
+						free (maskstr);
+					} else {
+						ut8 *mask = r_anal_mask (core->anal, instlen, buf + idx, core->addr + idx);
+						char *maskstr = r_hex_bin2strdup (mask, size);
+						printline ("mask", "%s\n", maskstr);
+						free (maskstr);
+						free (mask);
+					}
 				} else {
-					ut8 *mask = r_anal_mask (core->anal, instlen, buf + idx, core->addr + idx);
-					char *maskstr = r_hex_bin2strdup (mask, size);
-					printline ("mask", "%s\n", maskstr);
-					free (maskstr);
-					free (mask);
-				}
+					R_LOG_DEBUG ("invalid instlen for 0x%"PFMT64x, op.addr);
+}
 			}
 			if (hint) {
 				if (hint->opcode) {
@@ -5863,7 +5895,7 @@ static int cmd_af(RCore *core, const char *input) {
 			r_core_anal_fcn_list (core, NULL, input + 2);
 			break;
 		case 'c': // "aflc"
-			r_cons_printf ("%d\n", r_list_length (core->anal->fcns));
+			r_kons_printf (core->cons, "%d\n", r_list_length (core->anal->fcns));
 			break;
 		case ' ': // "afl [addr]" argument ignored
 		case 0: // "afl"
@@ -6007,10 +6039,10 @@ static int cmd_af(RCore *core, const char *input) {
 		r_core_anal_fmap (core, input + 1);
 		break;
 	case 'v': // "afv"
-		var_cmd (core, input + 2);
+		cmd_afv (core, input + 2);
 		break;
 	case 't': // "aft"
-		type_cmd (core, input + 2);
+		cmd_aft (core, input + 2);
 		break;
 	case 'C': // "afC"
 		if (input[2] == 'c') {
@@ -8502,7 +8534,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 					r_anal_op_free (aop);
 					return;
 				}
-				RAGraph *agraph = r_agraph_new_from_graph (dfg->flow, &cbs, NULL);
+				RAGraph *agraph = r_agraph_new_from_graph (core, dfg->flow, &cbs, NULL);
 				r_anal_esil_dfg_free (dfg);
 				agraph->can->linemode = r_config_get_i (core->config, "graph.linemode");
 				agraph->layout = r_config_get_i (core->config, "graph.layout");
@@ -8524,7 +8556,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 					r_config_get_b (core->config, "esil.dfg.mapinfo"),
 					r_config_get_b (core->config, "esil.dfg.maps"));
 			if (dfg) {
-				RAGraph *agraph = r_agraph_new_from_graph (dfg->flow, &cbs, NULL);
+				RAGraph *agraph = r_agraph_new_from_graph (core, dfg->flow, &cbs, NULL);
 				r_anal_esil_dfg_free (dfg);
 				agraph->can->linemode = r_config_get_i (core->config, "graph.linemode");
 				agraph->layout = r_config_get_i (core->config, "graph.layout");
@@ -8562,7 +8594,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 					r_anal_op_free (aop);
 					return;
 				}
-				agraph = r_agraph_new_from_graph (dfg->flow, &cbs, NULL);
+				agraph = r_agraph_new_from_graph (core, dfg->flow, &cbs, NULL);
 				r_anal_esil_dfg_free (dfg);
 			}
 			r_anal_op_free (aop);
@@ -8571,7 +8603,7 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 				r_config_get_b (core->config, "esil.dfg.mapinfo"),
 				r_config_get_b (core->config, "esil.dfg.maps"));
 			R_RETURN_IF_FAIL (dfg);
-			agraph = r_agraph_new_from_graph (dfg->flow, &cbs, NULL);
+			agraph = r_agraph_new_from_graph (core, dfg->flow, &cbs, NULL);
 			r_anal_esil_dfg_free (dfg);
 		}
 		const ut64 osc = r_config_get_i (core->config, "scr.color");
@@ -8593,16 +8625,19 @@ static void cmd_aeg(RCore *core, int argc, char *argv[]) {
 		r_config_set_i (core->config, "scr.color", osc);
 	}
 		break;
-	case 'f':	// "aegf"
-	{
-		RStrBuf *filtered = r_anal_esil_dfg_filter_expr (core->anal, argv[1], argv[2],
-			r_config_get_b (core->config, "esil.dfg.mapinfo"),
-			r_config_get_b (core->config, "esil.dfg.maps"));
-		if (filtered) {
-			r_cons_printf ("%s\n", r_strbuf_get (filtered));
-			r_strbuf_free (filtered);
+	case 'f': // "aegf"
+		if (argv[1] && argv[2]) {
+			RStrBuf *filtered = r_anal_esil_dfg_filter_expr (core->anal, argv[1], argv[2],
+				r_config_get_b (core->config, "esil.dfg.mapinfo"),
+				r_config_get_b (core->config, "esil.dfg.maps"));
+			if (filtered) {
+				char *res = r_strbuf_drain (filtered);
+				r_cons_printf ("%s\n", res);
+				free (res);
+			}
+		} else {
+			R_LOG_ERROR ("Usage: aegf [expr] [reg]");
 		}
-	}
 		break;
 #if 0
 	case 'c':	// "aegc"
@@ -8659,7 +8694,9 @@ static void cmd_aep(RCore *core, const char *input) {
 	ut64 addr = core->addr;
 	switch (input[1]) {
 	case 'a': // "aepa"
-		if (input[2] == ' ') {
+		if (input[2] == '?') {
+			r_core_cmd_help_contains (core, help_msg_aep, "aepa");
+		} else if (input[2] == ' ') {
 			addr = r_num_math (core->num, input + 2);
 		}
 		// get flag in current offset
@@ -8766,10 +8803,14 @@ static void cmd_aes(RCore *core, const char *input) {
 		}
 		break;
 	case 'b': // "aesb"
-		if (!r_core_esil_step_back (core)) {
-			R_LOG_ERROR ("Cannot step back");
+		if (input[2] == '?') {
+			r_core_cmd_help_contains (core, help_msg_aes, "aesb");
+		} else {
+			if (!r_core_esil_step_back (core)) {
+				R_LOG_ERROR ("Cannot step back");
+			}
+			r_core_cmd0 (core, ".ar*");
 		}
-		r_core_cmd0 (core, ".ar*");
 		break;
 	case 'B': // "aesB"
 		n = strchr (input + 2, ' ');
@@ -9051,6 +9092,9 @@ static void cmd_anal_esil(RCore *core, const char *input, bool verbose) {
 		}
 		r_esil_stack_free (esil);
 		break;
+	case 0:
+		R_LOG_ERROR ("Expected argument or subcommand. See 'ae?' for details");
+		break;
 	case 's': // "aes" "aeso" "aesu" "aesue"
 		cmd_aes (core, input);
 		break;
@@ -9195,7 +9239,7 @@ static void cmd_anal_esil(RCore *core, const char *input, bool verbose) {
 			cmd_aei (core);
 			break;
 		default:
-			cmd_esil_mem (core, "?");
+			r_core_cmd_help (core, help_msg_aei);
 			break;
 		}
 		break;
@@ -11867,6 +11911,7 @@ static void cmd_agraph_node(RCore *core, const char *input) {
 			}
 			body = r_str_append (body, "\n");
 			if (n_args > 2) {
+				eprintf ("(%s)(%s)(%s)\n", args[0], args[1], args[2]);
 				RColor kolor = {0};
 				char *akolor = r_cons_pal_parse (core->cons, args[2], &kolor);
 				free (akolor);
@@ -12220,8 +12265,7 @@ R_API void r_core_agraph_treemap(RCore *core, int use_utf, const char *input) {
 	int h, w = r_kons_get_size (core->cons, &h);
 	w--;
 	h--;
-	int flags = r_cons_canvas_flags (core->cons);
-	RConsCanvas *canvas = r_cons_canvas_new (w, h, flags);
+	RConsCanvas *canvas = r_cons_canvas_new (core->cons, w, h, R_CONS_CANVAS_FLAG_INHERIT);
 	r_cons_canvas_box (canvas, 1, 1, w - 1, h - 1, "");
 	RListIter *iter;
 	RAnalFunction *fcn = NULL;
@@ -12449,7 +12493,7 @@ static void r_core_graph_print(RCore *core, RGraph /*<RGraphNodeInfo>*/ *graph, 
 			.get_title = _graph_node_info_get_title,
 			.get_body = _graph_node_info_get_body
 		};
-		agraph = r_agraph_new_from_graph (graph, &cbs, NULL);
+		agraph = r_agraph_new_from_graph (core, graph, &cbs, NULL);
 		switch (*input) {
 		case 0:
 			agraph->can->linemode = r_config_get_i (core->config, "graph.linemode");
@@ -12824,8 +12868,8 @@ static void cmd_anal_graph(RCore *core, const char *input) {
 			// Honor asm.graph=false in json as well
 			RConfigHold *hc = r_config_hold_new (core->config);
 			r_config_hold (hc, "asm.addr", NULL);
-			const bool o_graph_offset = r_config_get_i (core->config, "graph.offset");
-			r_config_set_i (core->config, "asm.addr", o_graph_offset);
+			const bool o_graph_addr = r_config_get_b (core->config, "graph.addr");
+			r_config_set_b (core->config, "asm.addr", o_graph_addr);
 			r_core_anal_graph (core, r_num_math (core->num, input + 2),
 				R_CORE_ANAL_JSON | R_CORE_ANAL_JSON_FORMAT_DISASM);
 			r_config_hold_restore (hc);
@@ -15024,7 +15068,9 @@ static void cmd_acb(RCore *core, const char *input) {
 		}
 		if (R_STR_ISEMPTY (end)) {
 			if (c == ' ') {
-				r_anal_class_list_bases (core->anal, cstr);
+				char *res = r_anal_class_list_bases (core->anal, cstr);
+				r_kons_print (core->cons, res);
+				free (res);
 			} else /*if (c == '-')*/ {
 				R_LOG_ERROR ("No base id given");
 			}
@@ -15095,8 +15141,9 @@ static void cmd_anal_class_vtable(RCore *core, const char *input) {
 			end = (char *)r_str_trim_head_wp (class_arg); // in case of extra unwanted stuff at the cmd end
 			*end = '\0';
 		}
-		r_anal_class_list_vtable_offset_functions (core->anal, class_arg, offset_arg);
-
+		char *res = r_anal_class_list_vtable_offset_functions (core->anal, class_arg, offset_arg);
+		r_kons_print (core->cons, res);
+		free (res);
 		free (cstr);
 		break;
 	}
@@ -15119,7 +15166,9 @@ static void cmd_anal_class_vtable(RCore *core, const char *input) {
 
 		if (R_STR_ISEMPTY (end)) {
 			if (c == ' ') {
-				r_anal_class_list_vtables (core->anal, cstr);
+				char *res = r_anal_class_list_vtables (core->anal, cstr);
+				r_kons_print (core->cons, res);
+				free (res);
 			} else /*if (c == '-')*/ {
 				R_LOG_ERROR ("No vtable id given. See acv [class name]");
 			}
@@ -15196,7 +15245,9 @@ static void cmd_anal_classes(RCore *core, const char *input) {
 				break;
 			}
 		}
-		r_anal_class_list (core->anal, input[1]);
+		char *res = r_anal_class_list (core->anal, input[1]);
+		r_kons_print (core->cons, res);
+		free (res);
 		break;
 	case ' ': // "ac"
 	case '-': // "ac-"
@@ -15760,17 +15811,27 @@ static void cmd_ano(RCore *core, const char *input) {
 			if (f) {
 				const char *arg = r_str_trim_head_ro (input + 3);
 				int len;
-				if (r_str_startswith (arg, "base64:")) {
+				if (*arg == ':') {
+					char *s = r_core_cmd_str (core, arg + 1);
+					if (!r_file_dump (f, (const ut8*)s, strlen (s), false)) {
+						R_LOG_ERROR ("Cannot save anotation to %s", f);
+					}
+					free (s);
+				} else if (r_str_startswith (arg, "base64:")) {
 					arg += 7;
 					ut8 *data = sdb_decode (arg, &len);
 					if (data) {
-						r_file_dump (f, data, len, false);
+						if (!r_file_dump (f, data, len, false)) {
+							R_LOG_ERROR ("Cannot save anotation to %s", f);
+						}
 						free (data);
 					} else {
 						R_LOG_ERROR ("Invalid base64 as argument for 'ano=...'");
 					}
 				} else {
-					r_file_dump (f, (const ut8*)arg, strlen (arg), false);
+					if (!r_file_dump (f, (const ut8*)arg, strlen (arg), false)) {
+						R_LOG_ERROR ("Cannot save anotation to %s", f);
+					}
 				}
 				free (f);
 			}
@@ -15985,7 +16046,7 @@ static int cmd_anal(void *data, const char *input) {
 		case 'j':
 		case 'q':
 		case 0:
-			ranal2_list (core, NULL, input[1]);
+			r_core_cmdf (core, "LA%c", input[1]);
 			break;
 		case '?':
 			// help

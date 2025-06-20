@@ -442,19 +442,19 @@ R_API void r_core_cmd_help_json(const RCore *core, RCoreHelpMessage help) {
 }
 
 R_API void r_core_cmd_help_match(const RCore *core, RCoreHelpMessage help, R_BORROW char * R_NONNULL cmd) {
-	r_cons_cmd_help_match (help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, 0, true);
+	r_cons_cmd_help_match (core->cons, help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, 0, true);
 }
 
 R_API void r_core_cmd_help_contains(const RCore *core, RCoreHelpMessage help, R_BORROW char * R_NONNULL cmd) {
-	r_cons_cmd_help_match (help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, 0, false);
+	r_cons_cmd_help_match (core->cons, help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, 0, false);
 }
 
 R_API void r_core_cmd_help_match_spec(const RCore *core, RCoreHelpMessage help, R_BORROW char * R_NONNULL cmd, char spec) {
-	r_cons_cmd_help_match (help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, spec, true);
+	r_cons_cmd_help_match (core->cons, help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, spec, true);
 }
 
 R_API void r_core_cmd_help_contains_spec(const RCore *core, RCoreHelpMessage help, R_BORROW char * R_NONNULL cmd, char spec) {
-	r_cons_cmd_help_match (help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, spec, false);
+	r_cons_cmd_help_match (core->cons, help, core->print->flags & R_PRINT_FLAGS_COLOR, cmd, spec, false);
 }
 
 struct duplicate_flag_t {
@@ -3925,6 +3925,7 @@ static int handle_command_call(RCore *core, const char *cmd) {
 }
 
 static int r_core_cmd_subst(RCore *core, char *cmd) {
+	RCons *cons = core->cons;
 	// PANCAKE eprintf ("subst(%s) (%s)\n", cmd, core->cons->context->grep.strings);
 	ut64 rep = strtoull (cmd, NULL, 10);
 	int ret = 0, orep;
@@ -3955,7 +3956,7 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 				*http = 0;
 			}
 		}
-		r_cons_printf ("HTTP/1.0 %d %s\r\n%s"
+		r_kons_printf (cons, "HTTP/1.0 %d %s\r\n%s"
 				"Connection: close\r\nContent-Length: %d\r\n\r\n",
 				200, "OK", "", -1);
 		return r_core_cmd0 (core, cmd);
@@ -4025,8 +4026,8 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 		goto beach;
 	}
 	if ((st64)rep > 1 && rep > INTERACTIVE_MAX_REP) {
-		if (r_cons_is_interactive ()) {
-			if (!r_cons_yesno ('n', "Are you sure to repeat this %"PFMT64d" times? (y/N)", rep)) {
+		if (r_kons_is_interactive (cons)) {
+			if (!r_kons_yesno (cons, 'n', "Are you sure to repeat this %"PFMT64d" times? (y/N)", rep)) {
 				goto beach;
 			}
 		}
@@ -4044,7 +4045,7 @@ static int r_core_cmd_subst(RCore *core, char *cmd) {
 	const bool ocur_enabled = core->print && core->print->cur_enabled;
 	R_CRITICAL_LEAVE (core);
 	while (rep-- > 0 && *cmd) {
-		if (r_cons_was_breaked ()) {
+		if (r_kons_was_breaked (cons)) {
 			break;
 		}
 		if (core->print) {
@@ -4448,9 +4449,10 @@ static int r_core_cmd_subst_i(RCore *core, char *cmd, char *colon, bool *tmpseek
 				} else if (ptr[1] == 'H') { // "|H"
 					scr_html = r_config_get_b (core->config, "scr.html");
 					r_config_set_b (core->config, "scr.html", true);
-					r_cons_context ()->tmp_html = true;
-					r_cons_context ()->is_html = true;
-					r_cons_context ()->was_html = scr_html;
+					RConsContext *c = core->cons->context;
+					c->tmp_html = true;
+					c->is_html = true;
+					c->was_html = scr_html;
 					return r_core_cmd0 (core, cmd);
 				} else if (!ptr[1] || !strcmp (ptr + 1, "T")) { // "|T"
 					scr_html = r_config_get_b (core->config, "scr.html");

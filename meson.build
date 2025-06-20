@@ -180,6 +180,7 @@ if host_machine.system() == 'windows'
   r2_zigns = join_paths(r2_datdir, 'zigns')
   r2_scripts = join_paths(r2_datdir, 'scripts')
   r2_themes = join_paths(r2_datdir, 'cons')
+  r2_panels = join_paths(r2_datdir, 'panels')
   r2_platform = join_paths(r2_datdir, 'platform')
   r2_fortunes = join_paths(r2_datdir, 'doc')
   r2_flags = join_paths(r2_datdir, 'flag')
@@ -191,6 +192,7 @@ if host_machine.system() == 'windows'
     'r2_platform',
     'r2_zigns',
     'r2_themes',
+    'r2_panels',
     'r2_fortunes',
     'r2_flags',
     'r2_hud'
@@ -228,6 +230,7 @@ else
   r2_zigns = join_paths(r2_datdir_r2, r2_version, 'zigns')
   r2_platform = join_paths(r2_datdir_r2, r2_version, 'platform')
   r2_themes = join_paths(r2_datdir_r2, r2_version, 'cons')
+  r2_panels = join_paths(r2_datdir_r2, r2_version, 'panels')
   r2_fortunes = join_paths(r2_datdir, 'doc', 'radare2')
   r2_flags = join_paths(r2_datdir_r2, r2_version, 'flag')
   r2_hud = join_paths(r2_datdir_r2, r2_version, 'hud')
@@ -255,7 +258,7 @@ conf_data.set('plugins_bp', '&r_bp_plugin_' + ', &r_bp_plugin_'.join(bp_plugins)
 conf_data.set('plugins_bin', '&r_bin_plugin_' + ', &r_bin_plugin_'.join(bin_plugins) + ', 0')
 conf_data.set('plugins_bin_ldr', '&r_bin_ldr_plugin_' + ', &r_bin_ldr_plugin_'.join(bin_ldr_plugins) + ', 0')
 conf_data.set('plugins_bin_xtr', '&r_bin_xtr_plugin_' + ', &r_bin_xtr_plugin_'.join(bin_xtr_plugins) + ', 0')
-conf_data.set('plugins_crypto', '&r_crypto_plugin_' + ', &r_crypto_plugin_'.join(crypto_plugins) + ', 0')
+conf_data.set('plugins_muta', '&r_muta_plugin_' + ', &r_muta_plugin_'.join(muta_plugins) + ', 0')
 conf_data.set('plugins_io', '&r_io_plugin_' + ', &r_io_plugin_'.join(io_plugins) + ', 0')
 conf_data.set('plugins_fs', '&r_fs_plugin_' + ', &r_fs_plugin_'.join(fs_plugins) + ', 0')
 conf_data.set('plugins_debug', '&r_debug_plugin_' + ', &r_debug_plugin_'.join(debug_plugins) + ', 0')
@@ -398,6 +401,7 @@ userconf.set('SDB', r2_sdb)
 userconf.set('PLATFORM', r2_platform)
 userconf.set('ZIGNS', r2_zigns)
 userconf.set('THEMES', r2_themes)
+userconf.set('PANELS', r2_panels)
 userconf.set('FORTUNES', r2_fortunes)
 userconf.set('FLAGS', r2_flags)
 userconf.set('HUD', r2_hud)
@@ -590,7 +594,7 @@ endif
 
 subdir('libr/util')
 subdir('libr/socket')
-subdir('libr/crypto')
+subdir('libr/muta')
 subdir('shlr')
 subdir('libr/cons')
 subdir('shlr/gdb')
@@ -616,6 +620,8 @@ subdir('libr/cons/d')
 subdir('libr/magic/d')
 subdir('libr/flag/d')
 subdir('libr/main')
+subdir('shlr/panels')
+
 
 subdir('binr')
 if meson.is_subproject()
@@ -628,7 +634,7 @@ if meson.is_subproject()
       r_cons_dep,
       r_core_dep,
       r_main_dep,
-      r_crypto_dep,
+      r_muta_dep,
       r_debug_dep,
       r_egg_dep,
       r_flag_dep,

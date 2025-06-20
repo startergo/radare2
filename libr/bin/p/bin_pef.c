@@ -440,20 +440,22 @@ static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 		}
 
 		if (sec->kind == 2) { // pidata, extract now
-			void *pac = malloc (sec->lenDisk);
+			size_t fsize = r_buf_size (buf);
+			size_t paclen = R_MIN (sec->lenDisk, fsize);
+			void *pac = malloc (paclen);
 			sec->unpack = sec->lenUnpack > 0 ? malloc (sec->lenUnpack) : NULL;
 			if (!pac || !sec->unpack) {
 				free (pac);
 				free (sec->unpack);
 				return false;
 			}
-			st64 n = r_buf_read_at (bf->buf, sec->offset, pac, sec->lenDisk);
-			if (n != sec->lenDisk) {
+			st64 n = r_buf_read_at (bf->buf, sec->offset, pac, paclen);
+			if (n != paclen) {
 				free (pac);
 				free (sec->unpack);
 				return false;
 			}
-			if (unpack_pidata (sec->unpack, sec->lenUnpack, pac, sec->lenDisk)) {
+			if (unpack_pidata (sec->unpack, sec->lenUnpack, pac, paclen)) {
 				free (pac);
 				free (sec->unpack);
 				return false;
@@ -904,7 +906,7 @@ RBinPlugin r_bin_plugin_pef = {
 	.meta = {
 		.name = "pef",
 		.author = "elliotnunn",
-		.desc = "Vintage-Apple Preferred Executable Format bin plugin",
+		.desc = "Vintage-Apple Preferred Executable",
 		.license = "LGPL-3.0-only",
 	},
 	.check = &check,
